@@ -1,13 +1,14 @@
-{# Tiny: a glance for the phone — urgent to-dos, then one line of counts. #}
+{# Tiny: a glance for the phone — one line of counts, the next few to-dos (urgent first), how many more. #}
 {% import "_macros.j2" as x %}
+{% set n = out.tiny_items | default(3) %}
 **Mail {{ window.end | date("%a %d %b") }}:** {{ todos | length | plural("to-do") }}{% if urgent %}, {{ urgent | length }} urgent{% endif %}{% if waits %} · {{ waits | length }} waiting for replies{% endif %}{% if expiring %} · {{ expiring | length }} deleted soon{% endif %}
 
 
-{% for m in urgent %}
-- {{ m.todo }}{{ x.due(m) }} — {{ m.sender }}
+{% for m in todos[:n] %}
+- {{ "❗ " if m.priority == "high" }}{{ m.todo }}{{ x.due(m) }} — {{ m.sender }}
 {% endfor %}
-{% if todos | length > urgent | length %}
-- … and {{ todos | length - urgent | length }} more ({{ x.counts(count(todos[urgent | length:])) }})
+{% if todos | length > n %}
+- … and {{ todos | length - n }} more ({{ x.counts(count(todos[n:])) }})
 {% endif %}
 {% for p in problems %}
 - ⚠ {{ p }}

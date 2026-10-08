@@ -137,7 +137,7 @@ The digest's layout is a [Jinja](https://jinja.palletsprojects.com/en/stable/tem
 |---|---|
 | `brief` (default) | To-dos with urgent ones first, waiting for replies, up to `max_fyi` things worth knowing; the rest counted |
 | `long` | Everything: to-dos, waiting for replies, every triaged email by category with its summary, skipped mail |
-| `tiny` | A glance for the phone: urgent to-dos and one line of counts |
+| `tiny` | A glance for the phone: one line of counts, the next `tiny_items` (3) to-dos with urgent ones marked ❗, and how many more |
 | `todo` | Only the to-do checklist, grouped by category |
 | `counts` | Numbers, categories and deadline dates only: no sender, subject or summary, so no mail text |
 | `oneline` | One line for a notification or status bar: counts and the next deadline, no mail text |

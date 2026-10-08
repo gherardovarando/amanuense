@@ -58,6 +58,7 @@ timeout = 600                       # seconds per email
 template = "brief"
 path = "~/amanuense/{date}.md"      # {date} = end of the window, {template} = template name; "-" prints to stdout
 max_fyi = 10                        # brief, page: at most this many "worth knowing" lines
+tiny_items = 3                      # tiny: how many to-dos to show
 urgent_within = "3d"                # urgent = act within this; a deadline further away is never urgent
 # Any other key you add here reaches templates as out.<key>.
 
