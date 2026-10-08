@@ -1,6 +1,12 @@
 # Categories
 
-Pick exactly one category per email. The `## ` headings must match the `categories` list in config.toml.
+<!--
+Each `## name` section with a one-word name is a category; the model picks exactly one per email.
+Optional lines right under the heading: `keyword: <IMAP keyword>` (default: the name; `none` = never tagged)
+and `fallback: yes` (used when the model's answer is not a category). Sections whose heading has
+spaces, like "Edge cases", are general notes. Edit by hand or with `amanuense category add/example`.
+Comments like this one are not shown to the model.
+-->
 
 ## research
 
@@ -46,6 +52,8 @@ Examples:
 - Reminder that a review is overdue → reviewing, needs action.
 
 ## info
+keyword: none
+fallback: yes
 
 FYI only: newsletters, broadcasts, mailing lists, notifications, calls with no personal ask.
 

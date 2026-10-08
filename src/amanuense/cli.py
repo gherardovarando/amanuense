@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, config, render, window
+from . import __version__, categories, config, render, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -34,7 +34,7 @@ def selection_args():
     g.add_argument("--model-url", metavar="URL", help="model server URL (Ollama base URL, or OpenAI-compatible /v1 URL)")
     g.add_argument("--model-api", choices=["ollama", "openai"], help="model server API")
     g.add_argument("--mcp-command", metavar="CMD", help='command that starts the IMAP MCP server, e.g. "node ~/imap-mcp-server/dist/index.js"')
-    g.add_argument("--categories", metavar="FILE", help="category descriptions and examples (Markdown)")
+    g.add_argument("--categories", metavar="FILE", help="categories file (Markdown; defines the categories)")
 
     g = p.add_argument_group("run")
     g.add_argument("--test", action="store_true", help="use made-up emails instead of the mailbox (the model still runs)")
@@ -70,6 +70,25 @@ def build_parser():
     i = sub.add_parser("init", help="create a config and a categories file to edit")
     i.add_argument("--force", action="store_true", help="overwrite existing files")
     sub.add_parser("config", parents=[sel], help="print the effective configuration")
+
+    c = sub.add_parser("category", help="list categories, add one, or add an example",
+                       description="Categories are the `## name` sections of the categories file; "
+                                   "these commands edit that file for you.")
+    c.add_argument("--categories", metavar="FILE", help="categories file (default: from the config)")
+    csub = c.add_subparsers(dest="action", required=True, metavar="ACTION")
+    csub.add_parser("list", help="list the categories with their tag keyword")
+    ca = csub.add_parser("add", help="add a category")
+    ca.add_argument("name", help="one word, e.g. phd")
+    ca.add_argument("-d", "--description", default="", help="what belongs in this category")
+    ca.add_argument("-e", "--example", action="append", default=[], metavar="TEXT",
+                    help='an example, e.g. "A student asks about thesis enrolment → phd, needs action" (repeatable)')
+    kw = ca.add_mutually_exclusive_group()
+    kw.add_argument("-k", "--keyword", help="IMAP keyword when tagging (default: the name)")
+    kw.add_argument("--no-tag", action="store_true", help="never tag messages with this category")
+    ca.add_argument("--fallback", action="store_true", help="use this category when the model's answer is unknown")
+    ce = csub.add_parser("example", help="add an example to a category")
+    ce.add_argument("name")
+    ce.add_argument("text", help='e.g. "A call for papers sent to a list → info, no action"')
     return p
 
 
@@ -184,11 +203,8 @@ def cmd_check(cfg, a):
         print(f"{'ok  ' if good else 'FAIL'} {name}: {detail}")
 
     report("config", True, cfg["_path"])
-    try:
-        config.categories_text(cfg)
-        report("categories", True, cfg["categories_file"])
-    except SystemExit as e:
-        report("categories", False, str(e))
+    report("categories", True, f"{cfg['categories_file']}: {', '.join(cfg['categories'])} "
+                               f"(fallback {cfg['fallback']})")
     try:
         start, end = window.parse_window(cfg["window"]["default"], last_run=window.read_last_run("digest"))
         report("window", True, f"{cfg['window']['default']}: {window.describe(start, end)}")
@@ -225,6 +241,32 @@ def cmd_check(cfg, a):
     return 0 if ok else 1
 
 
+def cmd_category(cfg, a):
+    path = Path(cfg["categories_file"])
+    if a.action == "list":
+        cats = categories.load(path)
+        print(f"{path}")
+        for c in cats.items:
+            tag = c.keyword or "(not tagged)"
+            fb = "  fallback" if c.name == cats.fallback else ""
+            n = f"{c.examples} example{'' if c.examples == 1 else 's'}"
+            print(f"  {c.name:<14} keyword {tag:<14} {n}{fb}")
+        return 0
+    if not cfg.get("_path") and not a.categories:
+        raise SystemExit("amanuense: no config yet; run `amanuense init` first")
+    try:
+        if a.action == "add":
+            keyword = "" if a.no_tag else a.keyword
+            categories.add(path, a.name, a.description, a.example, keyword=keyword, fallback=a.fallback)
+            print(f"added category {a.name} to {path}")
+        else:
+            categories.add_example(path, a.name, a.text)
+            print(f"added an example to {a.name} in {path}")
+    except categories.CategoryError as e:
+        raise SystemExit(f"amanuense: {e}") from None
+    return 0
+
+
 def main(argv=None):
     a = build_parser().parse_args(argv)
     if a.command == "init":
@@ -233,10 +275,13 @@ def main(argv=None):
             print(f"wrote {f}")
         print(f"Edit the files in {d}" if written else f"{d} already has a config (use --force to overwrite)")
         return 0
-    cfg = config.load(a.config, overrides(a), require_file=a.command != "config" and not a.test)
+    cfg = config.load(a.config, overrides(a),
+                      require_file=a.command not in ("config", "category") and not getattr(a, "test", False))
     if a.command == "config":
-        print(json.dumps(cfg, indent=2, ensure_ascii=False))
+        print(json.dumps({k: v for k, v in cfg.items() if k != "categories_prompt"}, indent=2, ensure_ascii=False))
         return 0
+    if a.command == "category":
+        return cmd_category(cfg, a)
     try:
         window.parse_window(cfg["window"]["default"])
     except ValueError as e:

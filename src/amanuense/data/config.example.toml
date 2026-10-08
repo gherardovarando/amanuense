@@ -1,9 +1,8 @@
 # amanuense configuration. `amanuense init` copies this file to ~/.config/amanuense/config.toml.
 # Every setting has a default; command-line options override this file.
 
-# Category names: the model must pick one of these. The last one is the fallback.
-# Describe each one, with examples, in the categories file.
-categories = ["research", "teaching", "admin", "events", "reviewing", "info"]
+# The categories file defines the categories (one `## name` section each, with description,
+# examples and tag keyword). Manage it by hand or with `amanuense category`.
 categories_file = "categories.md"   # relative to this file, or an absolute path
 
 [owner]
@@ -55,10 +54,6 @@ subject = '\[(BULK|SPAM\?)\]|newsletter'
 from = 'no-?reply|newsletter|mailer-daemon|notifications?@'
 
 [tag]
+# The keyword for each category is set in the categories file (`keyword:` lines).
 enabled = false        # digest also tags messages (same as digest --tag)
-exclude = ["info"]     # categories that get no tag
 todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunderbird "To Do")
-
-[tag.keywords]
-# IMAP keyword per category; a category not listed here uses its own name.
-# research = "$label1"

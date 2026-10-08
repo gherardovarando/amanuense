@@ -3,12 +3,14 @@ import copy
 import os
 import re
 import shutil
+import sys
 import tomllib
 from importlib import resources
 from pathlib import Path
 
+from . import categories
+
 DEFAULTS = {
-    "categories": ["research", "teaching", "admin", "events", "reviewing", "info"],
     "categories_file": "categories.md",
     "owner": {"description": "a university professor", "languages": "English"},
     "window": {"default": "24h", "unread": True, "max_unread": 100, "max_messages": 300},
@@ -28,8 +30,13 @@ DEFAULTS = {
     "output": {"path": "~/amanuense/{date}.md", "format": "markdown"},
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
-    "tag": {"enabled": False, "keywords": {}, "exclude": ["info"], "todo_keyword": ""},
+    "tag": {"enabled": False, "todo_keyword": ""},
 }
+
+# Settings that moved to the categories file.
+OBSOLETE = {("categories",): "categories are the `## name` sections of the categories file",
+            ("tag", "keywords"): "set `keyword:` in the category's section of the categories file",
+            ("tag", "exclude"): "set `keyword: none` in the category's section of the categories file"}
 
 
 def config_dir():
@@ -65,13 +72,29 @@ def load(path=None, overrides=None, require_file=True):
         raise SystemExit(f"No config at {path}. Run `amanuense init` to create one, or pass --config.")
     cfg = merge(cfg, overrides or {})
     cfg["_path"] = str(path) if path.exists() else None
+    for keys, hint in OBSOLETE.items():
+        d = cfg
+        for k in keys:
+            d = d.get(k) if isinstance(d, dict) else None
+        if d is not None:
+            print(f"amanuense: warning: `{'.'.join(keys)}` in {path} is ignored; {hint}", file=sys.stderr)
 
     cats = expand(cfg["categories_file"])
     if not cats.is_absolute():
         cats = path.parent / cats
+    if not cats.exists() and not cfg["_path"]:  # no config file at all (e.g. --test): use the example
+        cats = resources.files("amanuense") / "data" / "categories.example.md"
+    if not cats.exists():
+        raise SystemExit(f"No categories file at {cats}. Run `amanuense init` or set categories_file.")
     cfg["categories_file"] = str(cats)
-    if not cfg["categories"]:
-        raise SystemExit("config: `categories` is empty")
+    try:
+        c = categories.load(cats)
+    except categories.CategoryError as e:
+        raise SystemExit(f"amanuense: {e}") from None
+    cfg["categories"] = c.names
+    cfg["fallback"] = c.fallback
+    cfg["keywords"] = {x.name: x.keyword for x in c.items}
+    cfg["categories_prompt"] = c.prompt
     for key in ("subject", "from"):
         try:
             re.compile(cfg["skip"][key])
@@ -80,20 +103,9 @@ def load(path=None, overrides=None, require_file=True):
     return cfg
 
 
-def categories_text(cfg):
-    p = Path(cfg["categories_file"])
-    if not p.exists() and not cfg.get("_path"):  # no config file at all (e.g. --test): use the example
-        return (resources.files("amanuense") / "data" / "categories.example.md").read_text()
-    if not p.exists():
-        raise SystemExit(f"No categories file at {p}. Run `amanuense init` or set categories_file.")
-    return p.read_text()
-
-
 def tag_keyword(cfg, category):
     """IMAP keyword for a category, or None if that category is not tagged."""
-    if category in cfg["tag"]["exclude"]:
-        return None
-    return cfg["tag"]["keywords"].get(category, category)
+    return cfg["keywords"].get(category)
 
 
 def keyword_categories(cfg):

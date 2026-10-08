@@ -92,7 +92,7 @@ async def run(cfg, box, opts, log=lambda s: None):
     msgs, sent = await collect(cfg, box, opts)
     mark_handled(msgs, sent)
     known = config.keyword_categories(cfg)
-    system = model.system_prompt(cfg, config.categories_text(cfg))
+    system = model.system_prompt(cfg)
     inbox = cfg["mail"]["inbox"]
     for i, m in enumerate(msgs, 1):
         m["existing"] = [known[k] for k in m.get("customKeywords") or [] if k in known]

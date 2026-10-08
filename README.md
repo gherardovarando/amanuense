@@ -14,6 +14,7 @@ A private secretary for your inbox. A small language model running on your own m
   The output is a Markdown or JSON file. It starts with the proposed to-dos sorted by deadline, then lists the emails grouped by category. Emails you already answered are marked as handled.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
+- **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
 - **`amanuense config`** prints the effective configuration.
 
@@ -70,6 +71,11 @@ amanuense digest --tag                   # digest, and tag the messages in the m
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
 amanuense tag -w 2w --retag              # re-triage two weeks and replace category tags
+
+amanuense category list
+amanuense category add phd -d "Doctoral matters: enrolment, committees, thesis deposit." \
+    -e "The doctoral school asks to sign the annual evaluation → phd, needs action." -k '$label7'
+amanuense category example info "A call for papers sent to a mailing list → info, no action."
 ```
 
 Window specifications for `-w`/`--window`:
@@ -104,9 +110,34 @@ Or a systemd user timer that runs the same command.
 
 ## Categories
 
-The category names are in `config.toml` (`categories`); the model must pick one of them. Their descriptions and examples are in `categories.md`, which becomes part of the model's instructions. Small models learn much more from examples than from descriptions. When a category is often wrong, add a line in the form "an email like X → category, needs action or not". Keep the `## ` headings the same as the names in `categories`.
+The categories file (`~/.config/amanuense/categories.md`) is the only place where categories are defined. Each section with a one-word heading is a category:
 
-When tagging, each category becomes an IMAP keyword with the same name, unless `[tag.keywords]` maps it to another keyword. Categories in `tag.exclude` (by default `info`) get no keyword.
+```markdown
+## teaching
+keyword: $label2
+
+Courses, students asking about a course, exams, grades.
+
+Examples:
+- A student asks whether topic 5 is in Tuesday's exam → teaching, needs action.
+
+## info
+keyword: none
+fallback: yes
+
+Newsletters, broadcasts, mailing lists, notifications.
+
+## Edge cases
+
+- Anything sent to a list with no personal request is info.
+```
+
+- **`keyword:`** is the IMAP keyword set when tagging. It defaults to the category name; `none` means messages in this category are never tagged.
+- **`fallback: yes`** marks the category used when the model's answer isn't a known category. Without it, the last category is the fallback.
+- **Headings with spaces**, like "Edge cases", are general notes.
+- **Everything else** goes into the model's instructions: descriptions, examples and notes, minus the `keyword:`/`fallback:` lines and `<!-- comments -->`.
+
+Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
 
 ## Development
 

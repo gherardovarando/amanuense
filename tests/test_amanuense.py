@@ -3,8 +3,15 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from amanuense import cli, config, model, render, triage, window
+from amanuense import categories, cli, config, model, render, triage, window
 from amanuense.samples import FakeMailbox
+
+@pytest.fixture(autouse=True)
+def no_user_config(tmp_path, monkeypatch):
+    """Never read the real ~/.config/amanuense during tests."""
+    monkeypatch.setenv("AMANUENSE_CONFIG", str(tmp_path / "absent" / "config.toml"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
 
 NOW = datetime(2026, 10, 8, 15, 30, tzinfo=timezone(timedelta(hours=2)))
 
@@ -27,9 +34,38 @@ def test_windows():
             window.parse_window(bad, NOW)
 
 
+CATS = """# Categories
+
+<!-- notes for people -->
+
+## research
+
+Papers.
+
+Examples:
+- A coauthor sends a draft → research.
+
+## teaching
+keyword: $label2
+
+Courses.
+
+## info
+keyword: none
+fallback: yes
+
+Broadcasts.
+
+## Edge cases
+
+- Lists are info.
+"""
+
+
 def test_config_precedence(tmp_path):
     f = tmp_path / "config.toml"
     f.write_text('[window]\ndefault = "3d"\n[model]\nname = "a"\n')
+    (tmp_path / "categories.md").write_text(CATS)
     cfg = config.load(f, {"model": {"name": "b"}})
     assert cfg["window"]["default"] == "3d"      # file beats default
     assert cfg["model"]["name"] == "b"           # command line beats file
@@ -47,24 +83,69 @@ def test_cli_overrides():
     assert o["tag"] == {"enabled": True}
 
 
-def test_tag_keywords():
-    cfg = config.load(None, {"tag": {"keywords": {"research": "$label1"}}}, require_file=False)
-    assert config.tag_keyword(cfg, "research") == "$label1"
-    assert config.tag_keyword(cfg, "teaching") == "teaching"
+def test_categories_file():
+    c = categories.parse(CATS)
+    assert c.names == ["research", "teaching", "info"]           # "Edge cases" is a note
+    assert (c.keyword("research"), c.keyword("teaching"), c.keyword("info")) == ("research", "$label2", None)
+    assert c.fallback == "info"
+    assert c.items[0].examples == 1
+    assert "keyword:" not in c.prompt and "notes for people" not in c.prompt and "Lists are info" in c.prompt
+    assert categories.parse("## a\n## b\n").fallback == "b"     # default fallback: the last one
+    for bad in ("no sections", "## a\n## a\n", "## a\nfallback: yes\n## b\nfallback: yes\n",
+                "## a\nkeyword: \\Seen\n"):
+        with pytest.raises(categories.CategoryError):
+            categories.parse(bad)
+
+
+def test_category_edit(tmp_path):
+    f = tmp_path / "categories.md"
+    f.write_text(CATS)
+    categories.add(f, "phd", "Doctoral matters.", ["A student asks about enrolment → phd, needs action."], keyword="$label7")
+    c = categories.load(f)
+    assert c.names == ["research", "teaching", "info", "phd"] and c.keyword("phd") == "$label7"
+    assert c.fallback == "info"                                  # explicit fallback unchanged
+    assert f.read_text().index("## phd") < f.read_text().index("## Edge cases")
+    categories.add_example(f, "teaching", "A student asks about an exam → teaching, needs action.")
+    categories.add_example(f, "research", "A preprint from a coauthor → research.")
+    c = categories.load(f)
+    assert [x.examples for x in c.items] == [2, 1, 0, 1]
+    with pytest.raises(categories.CategoryError):
+        categories.add(f, "phd")
+    with pytest.raises(categories.CategoryError):
+        categories.add_example(f, "nope", "x")
+    with pytest.raises(categories.CategoryError):
+        categories.add(f, "two words")
+
+
+def test_tag_keywords(tmp_path):
+    f = tmp_path / "config.toml"
+    f.write_text("")
+    (tmp_path / "categories.md").write_text(CATS)
+    cfg = config.load(f)
+    assert config.tag_keyword(cfg, "teaching") == "$label2"
     assert config.tag_keyword(cfg, "info") is None
-    assert config.keyword_categories(cfg)["$label1"] == "research"
+    assert config.keyword_categories(cfg) == {"research": "research", "$label2": "teaching"}
+
+
+def test_obsolete_settings_warn(tmp_path, capsys):
+    f = tmp_path / "config.toml"
+    f.write_text('categories = ["a"]\n[tag]\nexclude = ["info"]\n')
+    (tmp_path / "categories.md").write_text(CATS)
+    cfg = config.load(f)
+    assert cfg["categories"] == ["research", "teaching", "info"]  # the file wins
+    err = capsys.readouterr().err
+    assert "`categories`" in err and "`tag.exclude`" in err
 
 
 def test_clean():
-    cats = ["a", "b", "info"]
-    r = model.clean({"category": "zzz", "needs_action": False, "todo": "x", "deadline": "soon"}, cats)
+    r = model.clean({"category": "zzz", "needs_action": False, "todo": "x", "deadline": "soon"}, ["a", "info"], "info")
     assert (r["category"], r["todo"], r["deadline"]) == ("info", None, None)
 
 
 def fake_classify(cfg, system, msg):
     cat = "admin" if "facturas" in msg["body"] else "research"
     return model.clean({"category": cat, "needs_action": True, "todo": "do it", "deadline": None, "summary": "s"},
-                       cfg["categories"])
+                       cfg["categories"], cfg["fallback"])
 
 
 def run_fake(monkeypatch, cfg, box, **kw):
@@ -89,7 +170,7 @@ def test_digest_selection_and_handled(monkeypatch):
 
 
 def test_tagging(monkeypatch):
-    cfg = config.load(None, {"tag": {"todo_keyword": "$label4"}}, require_file=False)
+    cfg = config.load(None, {"tag": {"todo_keyword": "$label4"}}, require_file=False)  # example categories
     box = FakeMailbox(cfg)
     box.inbox[2]["customKeywords"] = ["reviewing"]  # tagged by hand earlier
     msgs = run_fake(monkeypatch, cfg, box, tag=True, triage_tagged=False)
