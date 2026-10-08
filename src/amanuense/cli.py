@@ -232,7 +232,7 @@ def cmd_digest(cfg, a):
     if not a.test:
         save_results(opts, elapsed, task_error, msgs, waits)
     out = write_output(cfg, a, opts, elapsed, task_error, msgs, waits)
-    if not a.test:
+    if not a.test and not a.dry_run:  # a trial run must not make `-w last` skip mail next time
         window.write_last_run("digest", opts.end)
     summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}",
             file=sys.stderr if out == "stdout" else sys.stdout)
