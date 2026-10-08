@@ -6,7 +6,7 @@ Mail never leaves the machine. The MCP server is started with only the search an
 get tools enabled, so this script cannot send, move, flag or delete anything.
 
 Usage:
-  digest.py                  digest of the last 24 h of the inbox
+  digest.py                  last 24 h of the inbox, plus older unread mail
   digest.py --hours 72       longer window
   digest.py --test           synthetic emails, no IMAP (for testing)
   digest.py --config FILE    another config (default: config.toml next to this script)
@@ -139,9 +139,21 @@ async def fetch(cfg, hours):
         async with ClientSession(r, w) as s:
             await s.initialize()
             acc = mail["account"]
-            inbox = (await call(s, acc, "imap_search_emails", folder=mail["inbox"], since=since, limit=500))["messages"]
-            sent = (await call(s, acc, "imap_search_emails", folder=mail["sent"], since=since, limit=500))["messages"]
-            inbox = [m for m in inbox if parse_date(m["date"]) >= cutoff]
+            recent = (await call(s, acc, "imap_search_emails", folder=mail["inbox"], since=since, limit=500))["messages"]
+            inbox = {m["uid"]: m for m in recent if parse_date(m["date"]) >= cutoff}
+            if mail.get("unread", True):
+                # Older unread mail too, newest first, capped so a big backlog can't run for hours.
+                unread = (await call(s, acc, "imap_search_emails", folder=mail["inbox"], seen=False,
+                                     limit=mail.get("max_unread", 100)))["messages"]
+                for m in unread:
+                    if m["uid"] not in inbox:
+                        m["older_unread"] = True
+                        inbox[m["uid"]] = m
+            inbox = sorted(inbox.values(), key=lambda m: parse_date(m["date"]), reverse=True)
+            # Sent mail since the oldest message, to see which ones were already answered.
+            oldest = min([parse_date(m["date"]) for m in inbox] + [cutoff])
+            sent = (await call(s, acc, "imap_search_emails", folder=mail["sent"],
+                               since=(oldest - timedelta(days=1)).strftime("%Y-%m-%d"), limit=2000))["messages"]
             for m in inbox:
                 m["skip"] = is_skipped(cfg, m)
                 if m["skip"]:
@@ -174,8 +186,10 @@ def render(cfg, inbox, hours, elapsed):
     cats = cfg["categories"]
     done = [m for m in inbox if "ai" in m]
     skipped = [m for m in inbox if m["skip"]]
+    n_old = sum(1 for m in inbox if m.get("older_unread"))
     lines = [f"# Mail digest {datetime.now():%Y-%m-%d}", "",
-             f"Last {hours} h of the inbox: {len(inbox)} messages, {len(done)} triaged by {cfg['model']['name']}, "
+             f"Last {hours} h of the inbox plus older unread mail: {len(inbox)} messages "
+             f"({n_old} older unread), {len(done)} triaged by {cfg['model']['name']}, "
              f"{len(skipped)} skipped by the skip rules. Took {elapsed / 60:.0f} min.", "",
              "Generated locally; categories and to-dos are the model's guesses, check them.", ""]
 
@@ -198,8 +212,9 @@ def render(cfg, inbox, hours, elapsed):
         for m in ms:
             status = "handled" if m["handled"] else ("needs action" if m["ai"]["needs_action"] else "fyi")
             att = f" 📎 {', '.join(a for a in m['attachments'] if a)}" if m.get("attachments") else ""
+            old = " · older unread" if m.get("older_unread") else ""
             lines.append(f"- **{m['subject'] or '(no subject)'}** — {short_from(m['from'])}, "
-                         f"{parse_date(m['date']).astimezone():%a %d %H:%M}, uid {m['uid']} · *{status}*{att}  ")
+                         f"{parse_date(m['date']).astimezone():%a %d %b %H:%M}, uid {m['uid']} · *{status}*{old}{att}  ")
             lines.append(f"  {m['ai']['summary']}")
         lines.append("")
 
@@ -228,7 +243,10 @@ def test_messages(cfg):
            "Dear Dr Smith, would you be willing to review the manuscript 'X'? Please respond within 7 days.", 8),
         mk(4, "Estudiante <est@example.org>", "Duda examen", "Hola profe, ¿entra el tema 5 en el examen del martes?", 10),
         mk(5, "University News <noreply@example.org>", "Open day next week", "...", 12),
+        mk(6, "Colleague <col@example.org>", "Letter of support",
+           "Hi, could you send me a short letter of support for our joint grant by 20 October? Thanks", 24 * 9),
     ]
+    msgs[-1]["older_unread"] = True
     for m in msgs:
         m["skip"] = is_skipped(cfg, m)
     return msgs, [{"to": ["Anna Rossi <anna@example.org>"], "date": now.isoformat()}]

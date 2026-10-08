@@ -15,6 +15,9 @@ languages = "English or Spanish"
 account = "work"
 inbox = "INBOX"
 sent = "Sent"
+# Besides the last 24 h, also triage older unread mail in the inbox (newest first, at most max_unread).
+unread = true
+max_unread = 100
 # How to start the IMAP MCP server (https://github.com/nikolausm/imap-mcp-server).
 server_command = "node"
 server_args = ["~/.local/share/imap-mcp-server/dist/index.js"]

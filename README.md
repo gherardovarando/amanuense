@@ -2,7 +2,7 @@
 
 A private daily digest of your inbox, written by a small language model that runs on your own machine. Your mail never leaves it.
 
-Every run reads the last 24 hours of the inbox, skips broadcasts and notifications, and asks the local model to give each remaining email a category, decide whether it needs action, and write a one-line to-do and summary. The result is a Markdown file with the proposed to-dos sorted by deadline, then the emails grouped by category. Emails you have already replied to are marked as handled.
+Every run reads the last 24 hours of the inbox plus any older unread mail, skips broadcasts and notifications, and asks the local model to give each remaining email a category, decide whether it needs action, and write a one-line to-do and summary. The result is a Markdown file with the proposed to-dos sorted by deadline, then the emails grouped by category. Emails you have already replied to are marked as handled.
 
 ## How it stays private and safe
 
@@ -39,8 +39,8 @@ Edit `config.toml`. In particular, set:
 ## Use
 
 ```sh
-.venv/bin/python digest.py --test        # five made-up emails, no IMAP access
-.venv/bin/python digest.py               # last 24 hours
+.venv/bin/python digest.py --test        # six made-up emails, no IMAP access
+.venv/bin/python digest.py               # last 24 hours + older unread mail
 .venv/bin/python digest.py --hours 72    # longer window
 ```
 
@@ -60,4 +60,5 @@ The model sees `categories.md` as part of its instructions. Small models learn m
 
 - Categories and to-dos are a small model's guesses. Treat the to-dos as proposals.
 - Replies are detected by `In-Reply-To`, by the `\Answered` flag, or by a message in the Sent folder to the sender after the email's date.
+- Older unread mail is capped at `mail.max_unread` messages, newest first, so a large backlog can't make a run take hours (about 30 seconds per email).
 - Only the email body is read, not attachments. Bodies are cut to `model.body_chars` characters.
