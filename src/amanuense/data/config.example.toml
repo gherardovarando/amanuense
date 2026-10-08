@@ -1,0 +1,64 @@
+# amanuense configuration. `amanuense init` copies this file to ~/.config/amanuense/config.toml.
+# Every setting has a default; command-line options override this file.
+
+# Category names: the model must pick one of these. The last one is the fallback.
+# Describe each one, with examples, in the categories file.
+categories = ["research", "teaching", "admin", "events", "reviewing", "info"]
+categories_file = "categories.md"   # relative to this file, or an absolute path
+
+[owner]
+# Whose mail it is, in a few words; it goes into the model's instructions.
+description = "a university professor"
+languages = "English or Spanish"
+
+[window]
+# Which mail a run covers (--window): 24h, 3d, 2w, today, yesterday, week, last
+# (since the previous successful run), 2026-10-01, 2026-10-01..2026-10-05.
+default = "24h"
+unread = true          # also include unread mail outside the window (--unread / --no-unread)
+max_unread = 100       # at most this many of those, newest first
+max_messages = 300     # at most this many messages per run (~30 s each on a small CPU)
+
+[mail]
+account = ""           # account name in the IMAP MCP server; empty = its default account
+inbox = "INBOX"
+sent = "Sent"          # used to spot emails you already answered
+
+[mcp]
+# How to start the IMAP MCP server (https://github.com/nikolausm/imap-mcp-server).
+# amanuense only enables the tools a run needs: search and read, plus the keyword
+# tools when tagging. Sending, moving, flagging and deleting are never enabled.
+command = "node"
+args = ["~/.local/share/imap-mcp-server/dist/index.js"]
+env = {}               # extra environment variables for the server
+
+[model]
+api = "ollama"                      # "ollama", or "openai" for any OpenAI-compatible server
+url = "http://localhost:11434"      # Ollama base URL, or e.g. http://localhost:8080/v1
+name = "qwen3:4b-instruct"
+api_key_env = ""                    # name of an environment variable holding an API key, if needed
+body_chars = 3000                   # characters of each email body passed to the model (~1000 tokens)
+num_ctx = 4096                      # context size (Ollama)
+temperature = 0.0
+timeout = 600                       # seconds per email
+# think = false                     # Ollama: turn off "thinking" for reasoning models such as qwen3:4b
+
+[output]
+path = "~/amanuense/{date}.md"      # {date} = end of the window; "-" prints to stdout
+format = "markdown"                 # or "json"
+
+[skip]
+# Mail matching these regular expressions (case-insensitive) is listed as skipped
+# and never sent to the model.
+enabled = true
+subject = '\[(BULK|SPAM\?)\]|newsletter'
+from = 'no-?reply|newsletter|mailer-daemon|notifications?@'
+
+[tag]
+enabled = false        # digest also tags messages (same as digest --tag)
+exclude = ["info"]     # categories that get no tag
+todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunderbird "To Do")
+
+[tag.keywords]
+# IMAP keyword per category; a category not listed here uses its own name.
+# research = "$label1"

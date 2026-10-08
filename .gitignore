@@ -1,6 +1,9 @@
 .venv/
 *.log
 __pycache__/
-# private: personal config and category examples
+*.egg-info/
+build/
+dist/
+# private files never belong here (they live in ~/.config/amanuense)
 config.toml
 categories.md

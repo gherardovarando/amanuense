@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "amanuense"
+version = "0.2.0"
+description = "Private mail digest and tagging with a local language model"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.0"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+amanuense = "amanuense.cli:main"
+
+[tool.setuptools.package-data]
+amanuense = ["data/*"]
