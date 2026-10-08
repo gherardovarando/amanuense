@@ -133,19 +133,26 @@ def ics(uid, start, minutes, title, notes, alarm):
     return "\r\n".join(_fold(l) for l in lines) + "\r\n"
 
 
-def event_start(c, day):
+def event_start(c, day, now=None):
+    """calendar.time on the digest's day; if that has passed (a late run, a manual put), in two minutes,
+    so the reminder still goes off."""
+    now = now or datetime.now().astimezone()
     hh, mm = (int(x) for x in c["time"].split(":"))
-    return day.replace(hour=hh, minute=mm, second=0, microsecond=0)
+    start = day.astimezone(now.tzinfo).replace(hour=hh, minute=mm, second=0, microsecond=0)
+    if start <= now:
+        start = (now + timedelta(minutes=2)).replace(second=0, microsecond=0)
+    return start
 
 
 def put(c, day, title, notes):
     """Create or replace the day's event. `day` is an aware datetime; returns the event URL."""
     if not c.get("url"):
         raise CalendarError("set calendar.url (`amanuense calendar list` shows your calendars)")
-    uid = f"amanuense-{day:%Y-%m-%d}"
+    start = event_start(c, day)
+    uid = f"amanuense-{start:%Y-%m-%d}"
     url = c["url"].rstrip("/") + f"/{uid}.ics"
-    status, _, _ = _request(c, "PUT", url, ics(uid, event_start(c, day), c["minutes"], title, notes, c["alarm"]),
+    status, _, _ = _request(c, "PUT", url, ics(uid, start, c["minutes"], title, notes, c["alarm"]),
                             {"Content-Type": "text/calendar; charset=utf-8"})
     if status not in (200, 201, 204):
         raise CalendarError(f"PUT {url}: HTTP {status}")
-    return url
+    return start

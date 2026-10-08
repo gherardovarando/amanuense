@@ -333,8 +333,8 @@ def deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits):
     try:
         title = templates.render(cfg, c["title_template"], msgs, opts, elapsed, task_error, waits).strip()
         notes = templates.render(cfg, c["template"], msgs, opts, elapsed, task_error, waits)
-        caldav.put(c, opts.end, title.splitlines()[0] if title else "Mail digest", notes)
-        return f"calendar event at {c['time']}"
+        start = caldav.put(c, opts.end, title.splitlines()[0] if title else "Mail digest", notes)
+        return f"calendar event {start:%a %d %b %H:%M}"
     except (caldav.CalendarError, templates.TemplateError, OSError) as e:
         print(f"amanuense: warning: calendar: {e}", file=sys.stderr)
         return "calendar FAILED"

@@ -603,9 +603,10 @@ def test_calendar_discover_and_put(fake_caldav, tmp_path):
     found = caldav.discover(c)
     assert [n for n, _ in found] == ["Personal"]            # the VTODO-only list is left out
     c["url"] = found[0][1]
-    day = datetime(2026, 10, 9, 5, 31).astimezone()
-    url = caldav.put(c, day, "5 to-dos", "notes")
-    assert url.endswith("/dav/calendars/me/personal/amanuense-2026-10-09.ics")
+    day = (datetime.now() + timedelta(days=1)).replace(hour=5, minute=31).astimezone()
+    start = caldav.put(c, day, "5 to-dos", "notes")
+    assert f"{start:%H:%M}" == "07:30"
+    assert next(iter(fake_caldav["store"])).endswith(f"/dav/calendars/me/personal/amanuense-{day:%Y-%m-%d}.ics")
     caldav.put(c, day, "6 to-dos", "notes")                  # a rerun replaces the day's event
     (path, body), = fake_caldav["store"].items()
     assert "SUMMARY:6 to-dos" in body and "DTSTART:" in body
@@ -618,6 +619,14 @@ def test_calendar_discover_and_put(fake_caldav, tmp_path):
     c["username"] = "someone"
     with pytest.raises(caldav.CalendarError, match="refused"):
         caldav.put(c, day, "t", "n")
+
+
+def test_event_time_never_in_the_past():
+    from amanuense import caldav
+    c = {"time": "07:30"}
+    now = datetime(2026, 10, 9, 9, 0).astimezone()
+    assert caldav.event_start(c, now.replace(hour=5), now) == now + timedelta(minutes=2)
+    assert caldav.event_start(c, now.replace(hour=5), now.replace(hour=6)).hour == 7
 
 
 def test_digest_delivers_to_calendar(fake_caldav, tmp_path, monkeypatch):
