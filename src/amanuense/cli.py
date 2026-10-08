@@ -79,7 +79,7 @@ def build_parser():
     d.add_argument("--waiting-tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="also add a follow-up task for each (default: waiting.tasks in the config)")
     d.add_argument("--calendar", action=argparse.BooleanOptionalAction, default=None,
-                   help="also put the digest in the calendar as today's event (default: calendar.enabled)")
+                   help="also put the digest in the calendar as today's task or event (default: calendar.enabled)")
     d.add_argument("--tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
                         "'auto' = when the task command is installed)")
@@ -334,7 +334,7 @@ def deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits):
         title = templates.render(cfg, c["title_template"], msgs, opts, elapsed, task_error, waits).strip()
         notes = templates.render(cfg, c["template"], msgs, opts, elapsed, task_error, waits)
         start = caldav.put(c, opts.end, title.splitlines()[0] if title else "Mail digest", notes)
-        return f"calendar event {start:%a %d %b %H:%M}"
+        return f"calendar {c['kind']} {start:%a %d %b %H:%M}"
     except (caldav.CalendarError, templates.TemplateError, OSError) as e:
         print(f"amanuense: warning: calendar: {e}", file=sys.stderr)
         return "calendar FAILED"

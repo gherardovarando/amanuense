@@ -184,11 +184,11 @@ Templates run sandboxed, and unknown variables are an error, not silently empty:
 
 ## Calendar
 
-To get the digest on your phone without a new app or service, amanuense can put it in a CalDAV calendar that the phone already syncs (Nextcloud, ownCloud, SOGo, Baïkal, iCloud, Fastmail, a university's DAV server…). Each run creates or replaces one event that morning:
+To get the digest on your phone without a new app or service, amanuense can put it in a CalDAV calendar that the phone already syncs (Nextcloud, ownCloud, SOGo, Baïkal, iCloud, Fastmail, a university's DAV server…). Each run creates or replaces one task due that morning (or an event, with `kind = "event"`):
 
 - title: the `oneline` template, counts only (`5 to-dos (2 urgent) · next deadline Sat 10 Oct (research)`), which is what a lock screen shows
 - notes: the `tiny` template
-- a reminder at the event's time, marked private and free
+- a reminder at that time, marked private; tick the task off once you've read it
 
 ```toml
 [calendar]

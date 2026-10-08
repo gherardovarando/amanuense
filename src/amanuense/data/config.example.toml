@@ -102,15 +102,16 @@ enabled = false        # digest also tags messages (same as digest --tag)
 todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunderbird "To Do")
 
 [calendar]
-# Put each digest in a CalDAV calendar as an event that morning, so a phone that syncs
-# the calendar shows a reminder. Title: counts only (oneline); notes: the tiny digest.
+# Put each digest in a CalDAV calendar as a task (or event) due that morning, so a phone that
+# syncs the calendar shows a reminder. Title: counts only (oneline); notes: the tiny digest.
 enabled = false
 server = "https://dav.example.org/"   # then `amanuense calendar list` shows the calendars
 url = ""                              # one of them
 username = ""
 password_file = "~/.config/amanuense/caldav-password"   # one line, chmod 600; or:
 # password_command = "pass show caldav"
-time = "07:30"                        # local time of the event (and its reminder)
+kind = "task"                         # "task" (tick it off once read) or "event"
+time = "07:30"                        # local time it's due (and its reminder)
 minutes = 15
 alarm = true
 title_template = "oneline"

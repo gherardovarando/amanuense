@@ -36,7 +36,7 @@ DEFAULTS = {
                 "tasks": False, "task_tag": "followup"},
     "folders": [],  # [[folders]] name, label, expires_days, all, max_messages
     "calendar": {"enabled": False, "server": "", "url": "", "username": "", "password_file": "",
-                 "password_command": "", "time": "07:30", "minutes": 15, "alarm": True,
+                 "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "rc": {}},
 }
@@ -119,6 +119,8 @@ def load(path=None, overrides=None, require_file=True):
             raise SystemExit("config: every [[folders]] entry needs a name")
     if cfg["output"].get("format") == "json":  # older configs
         cfg["output"]["template"] = "json"
+    if cfg["calendar"]["kind"] not in ("task", "event"):
+        raise SystemExit(f"config: calendar.kind must be \"task\" or \"event\", not {cfg['calendar']['kind']!r}")
     if not re.fullmatch(r"([01]?\d|2[0-3]):[0-5]\d", str(cfg["calendar"]["time"])):
         raise SystemExit(f"config: calendar.time must be HH:MM, not {cfg['calendar']['time']!r}")
     for o in cfg["outputs"]:

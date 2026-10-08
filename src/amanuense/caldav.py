@@ -1,6 +1,7 @@
-"""Deliver the digest as an event in a CalDAV calendar, so a phone that syncs it shows a reminder.
+"""Deliver the digest to a CalDAV calendar, as a task (default) or an event, so a phone that syncs
+it shows a reminder.
 
-One event per day, with a fixed id (amanuense-YYYY-MM-DD), so a rerun replaces it. The title
+One item per day, with a fixed id (amanuense-YYYY-MM-DD), so a rerun replaces it. The title
 comes from one template (by default `oneline`: counts only, which is what a lock screen shows)
 and the notes from another (by default `tiny`).
 """
@@ -98,7 +99,7 @@ def discover(c):
         if r.find(".//d:resourcetype/c:calendar", NS) is None:
             continue
         comps = [x.get("name") for x in r.findall(".//c:supported-calendar-component-set/c:comp", NS)]
-        if comps and "VEVENT" not in comps:
+        if comps and not {"VEVENT", "VTODO"} & set(comps):
             continue
         name = (r.findtext(".//d:displayname", "", NS) or "").strip()
         url = urllib.parse.urljoin(base, r.findtext("d:href", "", NS).strip())
@@ -124,15 +125,21 @@ def _fold(line):
     return "\r\n ".join(out)
 
 
-def ics(uid, start, minutes, title, notes, alarm):
+def ics(uid, start, minutes, title, notes, alarm, kind="task"):
+    """A VTODO (kind "task": due at `start`, ticked off once read) or a VEVENT (kind "event")."""
     utc = lambda d: d.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//amanuense//digest//EN", "BEGIN:VEVENT",
-             f"UID:{uid}", f"DTSTAMP:{utc(datetime.now(timezone.utc))}", f"DTSTART:{utc(start)}",
-             f"DTEND:{utc(start + timedelta(minutes=minutes))}", f"SUMMARY:{_text(title)}",
-             f"DESCRIPTION:{_text(notes)}", "TRANSP:TRANSPARENT", "CLASS:PRIVATE"]
-    if alarm:
-        lines += ["BEGIN:VALARM", "ACTION:DISPLAY", f"DESCRIPTION:{_text(title)}", "TRIGGER:PT0S", "END:VALARM"]
-    lines += ["END:VEVENT", "END:VCALENDAR"]
+    comp = "VTODO" if kind == "task" else "VEVENT"
+    lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//amanuense//digest//EN", f"BEGIN:{comp}",
+             f"UID:{uid}", f"DTSTAMP:{utc(datetime.now(timezone.utc))}", f"DTSTART:{utc(start)}"]
+    if comp == "VTODO":
+        lines += [f"DUE:{utc(start + timedelta(minutes=minutes))}", "STATUS:NEEDS-ACTION"]
+    else:
+        lines += [f"DTEND:{utc(start + timedelta(minutes=minutes))}", "TRANSP:TRANSPARENT"]
+    lines += [f"SUMMARY:{_text(title)}", f"DESCRIPTION:{_text(notes)}", "CLASS:PRIVATE"]
+    if alarm:  # relative to DTSTART for both kinds
+        lines += ["BEGIN:VALARM", "ACTION:DISPLAY", f"DESCRIPTION:{_text(title)}", "TRIGGER;RELATED=START:PT0S",
+                  "END:VALARM"]
+    lines += [f"END:{comp}", "END:VCALENDAR"]
     return "\r\n".join(_fold(l) for l in lines) + "\r\n"
 
 
@@ -154,7 +161,7 @@ def put(c, day, title, notes):
     start = event_start(c, day)
     uid = f"amanuense-{start:%Y-%m-%d}"
     url = c["url"].rstrip("/") + f"/{uid}.ics"
-    status, _, _ = _request(c, "PUT", url, ics(uid, start, c["minutes"], title, notes, c["alarm"]),
+    status, _, _ = _request(c, "PUT", url, ics(uid, start, c["minutes"], title, notes, c["alarm"], c.get("kind", "task")),
                             {"Content-Type": "text/calendar; charset=utf-8"})
     if status not in (200, 201, 204):
         raise CalendarError(f"PUT {url}: HTTP {status}")

@@ -594,6 +594,9 @@ def test_ics_escaping_and_folding():
     unfolded = text.replace("\r\n ", "")
     assert r"SUMMARY:5 to-dos\, 2 urgent\; ok" in unfolded and "\\n- second" in unfolded
     assert "BEGIN:VALARM" in text and "UID:amanuense-2026-10-09" in text
+    assert "BEGIN:VTODO" in text and "DUE:" in text and "STATUS:NEEDS-ACTION" in text
+    event = caldav.ics("x", start, 15, "t", "n", alarm=False, kind="event")
+    assert "BEGIN:VEVENT" in event and "DTEND:" in event and "VALARM" not in event
 
 
 def test_calendar_discover_and_put(fake_caldav, tmp_path):
@@ -601,7 +604,7 @@ def test_calendar_discover_and_put(fake_caldav, tmp_path):
     c = {**config.DEFAULTS["calendar"], "enabled": True, "server": fake_caldav["server"], "username": "me",
          "password_file": fake_caldav["password_file"]}
     found = caldav.discover(c)
-    assert [n for n, _ in found] == ["Personal"]            # the VTODO-only list is left out
+    assert [n for n, _ in found] == ["Personal", "Tasks"]   # calendars for events and for tasks
     c["url"] = found[0][1]
     day = (datetime.now() + timedelta(days=1)).replace(hour=5, minute=31).astimezone()
     start = caldav.put(c, day, "5 to-dos", "notes")
@@ -636,6 +639,6 @@ def test_digest_delivers_to_calendar(fake_caldav, tmp_path, monkeypatch):
                       require_file=False)
     msgs, waits = samples.results(cfg)
     opts = triage.Options(*window.parse_window("24h"))
-    assert cli.deliver_calendar(cfg, opts, 60, None, msgs, waits).startswith("calendar event")
+    assert cli.deliver_calendar(cfg, opts, 60, None, msgs, waits).startswith("calendar task")
     body = next(iter(fake_caldav["store"].values())).replace("\r\n ", "")
     assert "SUMMARY:5 to-dos (2 urgent)" in body and "Check Section 4" in body
