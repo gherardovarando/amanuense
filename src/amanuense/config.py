@@ -31,6 +31,7 @@ DEFAULTS = {
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
+    "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "rc": {}},
 }
 
 # Settings that moved to the categories file.

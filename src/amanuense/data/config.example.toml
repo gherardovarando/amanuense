@@ -53,6 +53,15 @@ enabled = true
 subject = '\[(BULK|SPAM\?)\]|newsletter'
 from = 'no-?reply|newsletter|mailer-daemon|notifications?@'
 
+[taskwarrior]
+# digest adds a task for each new to-do that has no task yet (checked against annotations,
+# in any status, so completed or deleted tasks are never re-created).
+enabled = "auto"       # "auto" = when the task command is installed; true; false (--tasks / --no-tasks)
+command = "task"
+tags = ["email"]       # added to every task, after the category tag (categories with keyword: none get none)
+project = ""
+rc = {}                # extra rc settings, e.g. { "data.location" = "~/.task-mail" }
+
 [tag]
 # The keyword for each category is set in the categories file (`keyword:` lines).
 enabled = false        # digest also tags messages (same as digest --tag)

@@ -188,3 +188,58 @@ def test_tagging(monkeypatch):
     box = FakeMailbox(cfg)
     run_fake(monkeypatch, cfg, box, tag=True, dry_run=True)
     assert box.written == []
+
+
+@pytest.fixture
+def taskdb(tmp_path, monkeypatch):
+    """A throwaway Taskwarrior database; the real ~/.task is never touched."""
+    from amanuense import tasks
+    import shutil
+    if not shutil.which("task"):
+        pytest.skip("taskwarrior not installed")
+    (tmp_path / "taskdata").mkdir()
+    (tmp_path / "taskrc").write_text("")
+    monkeypatch.setenv("TASKRC", str(tmp_path / "taskrc"))
+    monkeypatch.setenv("TASKDATA", str(tmp_path / "taskdata"))
+    return tasks
+
+
+def test_tasks(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    assert taskdb.enabled(cfg)                    # "auto" and task is installed
+    box = FakeMailbox(cfg)
+    msgs = run_fake(monkeypatch, cfg, box)
+    open_todos = [m for m in msgs if "ai" in m and not m["handled"]]
+
+    assert taskdb.add_tasks(cfg, msgs, dry_run=True) == len(open_todos)
+    assert taskdb.existing_refs(cfg) == (set(), set())        # dry run wrote nothing
+
+    assert taskdb.add_tasks(cfg, msgs) == len(open_todos)
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    t = next(t for t in exported if "uid 1," in t["annotations"][0]["description"])
+    assert t["tags"] == ["admin", "email"] and t["description"] == "do it"
+    assert "message-id <1@test>" in t["annotations"][0]["description"]
+    assert not any("uid 2," in t["annotations"][0]["description"] for t in exported)  # handled: no task
+
+    assert taskdb.add_tasks(cfg, msgs) == 0                   # second run: nothing new
+    assert all(m["task"] == "exists" for m in open_todos)
+
+
+def test_tasks_respect_manual_annotation(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    taskdb._task(cfg, "add", "Answer the student", "+teaching")
+    taskdb._task(cfg, "1", "annotate", "2026-10-01 IMAP uid 4, account work, subject: Duda examen")
+    taskdb._task(cfg, "add", "Accounting", "+admin")
+    taskdb._task(cfg, "2", "annotate", "IMAP uid 999, account other, subject: x, msgid:<1@test>. PDFs in a folder")
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    taskdb.add_tasks(cfg, msgs)
+    assert next(m for m in msgs if m["uid"] == 4)["task"] == "exists"   # by account + uid
+    assert next(m for m in msgs if m["uid"] == 1)["task"] == "exists"   # by msgid
+
+
+def test_tasks_disabled(monkeypatch):
+    from amanuense import tasks
+    cfg = config.load(None, {"taskwarrior": {"enabled": "auto", "command": "no-such-task-binary"}}, require_file=False)
+    assert not tasks.enabled(cfg)
+    cfg = config.load(None, {"taskwarrior": {"enabled": False}}, require_file=False)
+    assert not tasks.enabled(cfg)

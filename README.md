@@ -12,6 +12,8 @@ A private secretary for your inbox. A small language model running on your own m
   - a summary
 
   The output is a Markdown or JSON file. It starts with the proposed to-dos sorted by deadline, then lists the emails grouped by category. Emails you already answered are marked as handled.
+
+  If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
@@ -68,6 +70,8 @@ amanuense digest -w 3d --no-unread       # last 3 days only
 amanuense digest -w last                 # since the previous successful digest
 amanuense digest -w 2026-10-01..2026-10-05 --format json -o week.json
 amanuense digest --tag                   # digest, and tag the messages in the mailbox
+amanuense digest --no-tasks              # don't add Taskwarrior tasks this time
+amanuense digest --dry-run               # show "task (dry run)" instead of adding tasks or tags
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
 amanuense tag -w 2w --retag              # re-triage two weeks and replace category tags
@@ -138,6 +142,18 @@ Newsletters, broadcasts, mailing lists, notifications.
 - **Everything else** goes into the model's instructions: descriptions, examples and notes, minus the `keyword:`/`fallback:` lines and `<!-- comments -->`.
 
 Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
+
+## Taskwarrior
+
+When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered.
+
+- **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
+- **Description:** the to-do. **Due date:** the deadline, if the email has one.
+- **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
+- **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`.
+- **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once.
+- **Test and dry runs:** `--test` and `--dry-run` never add tasks; the digest shows "task (dry run)" instead. `amanuense check` reports whether Taskwarrior is on and how many tasks already point to emails.
+- **`tag` command:** `tag` never adds tasks.
 
 ## Development
 

@@ -5,7 +5,8 @@ from collections import Counter
 from .triage import parse_date, short_from
 from .window import describe
 
-_FIELDS = ("uid", "from", "subject", "date", "handled", "outside_window", "skip", "error", "existing", "tag_actions")
+_FIELDS = ("uid", "from", "subject", "date", "handled", "outside_window", "skip", "error", "existing", "tag_actions",
+           "task")
 
 
 def stats(msgs):
@@ -18,22 +19,23 @@ def stats(msgs):
         "skipped": sum(1 for m in msgs if m.get("skip")),
         "errors": sum(1 for m in msgs if m.get("error")),
         "tagged": sum(1 for m in done if any(a == "add" for a, _ in m.get("tag_actions") or [])),
+        "tasks": sum(1 for m in done if m.get("task") in ("added", "would add")),
         "categories": dict(Counter(m["ai"]["category"] for m in done)),
     }
 
 
-def to_json(cfg, msgs, opts, elapsed):
+def to_json(cfg, msgs, opts, elapsed, task_error=None):
     out = []
     for m in msgs:
         r = {k: m.get(k) for k in _FIELDS if k in m}
         r.update(m.get("ai") or {})
         out.append(r)
     return json.dumps({"window": [opts.start.isoformat(), opts.end.isoformat()], "model": cfg["model"]["name"],
-                       "stats": stats(msgs), "elapsed_s": round(elapsed), "messages": out},
+                       "stats": stats(msgs), "elapsed_s": round(elapsed), "task_error": task_error, "messages": out},
                       ensure_ascii=False, indent=1, default=str) + "\n"
 
 
-def to_markdown(cfg, msgs, opts, elapsed):
+def to_markdown(cfg, msgs, opts, elapsed, task_error=None):
     cats = cfg["categories"]
     st = stats(msgs)
     done = [m for m in msgs if "ai" in m]
@@ -48,13 +50,16 @@ def to_markdown(cfg, msgs, opts, elapsed):
     if opts.tag:
         verb = "Would tag" if opts.dry_run else "Tagged"
         lines += [f"{verb} {st['tagged']} messages in the mailbox.", ""]
+    if task_error:
+        lines += [f"Taskwarrior failed, no tasks were added: {task_error}", ""]
 
     todos = [m for m in done if m["ai"]["needs_action"] and not m["handled"]]
     todos.sort(key=lambda m: (m["ai"]["deadline"] or "9999", cats.index(m["ai"]["category"])))
     lines += ["## Proposed to-dos", ""]
     for m in todos:
         dl = f" **(due {m['ai']['deadline']})**" if m["ai"]["deadline"] else ""
-        lines.append(f"- [ ] {m['ai']['todo']}{dl} — {m['ai']['category']}, {short_from(m['from'])}, uid {m['uid']}")
+        task = {"added": " · task added", "would add": " · task (dry run)", "exists": " · task exists"}.get(m.get("task"), "")
+        lines.append(f"- [ ] {m['ai']['todo']}{dl} — {m['ai']['category']}, {short_from(m['from'])}, uid {m['uid']}{task}")
     if not todos:
         lines.append("- none")
     lines.append("")

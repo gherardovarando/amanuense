@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, categories, config, render, window
+from . import __version__, categories, config, render, tasks, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -59,6 +59,9 @@ def build_parser():
     d.add_argument("--tag", action=argparse.BooleanOptionalAction, default=None,
                    help="also tag the messages in the mailbox (default: tag.enabled in the config)")
     d.add_argument("--todo-keyword", metavar="KW", help="with --tag, also set this keyword on to-dos (e.g. $label4)")
+    d.add_argument("--tasks", action=argparse.BooleanOptionalAction, default=None,
+                   help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
+                        "'auto' = when the task command is installed)")
 
     t = sub.add_parser("tag", parents=[sel], help="tag messages in the mailbox with their category",
                        description="Set an IMAP keyword with the category on each message. Messages that "
@@ -127,6 +130,7 @@ def overrides(a):
     put("output.format", g("format"))
     put("tag.enabled", g("tag"))
     put("tag.todo_keyword", g("todo_keyword"))
+    put("taskwarrior.enabled", g("tasks"))
     return o
 
 
@@ -152,9 +156,16 @@ def cmd_digest(cfg, a):
     opts = make_options(cfg, a, "digest")
     t0 = time.time()
     msgs = asyncio.run(run(cfg, mailbox(cfg, a, write=opts.tag and not opts.dry_run), opts, logger(a)))
+    task_error = None
+    if tasks.enabled(cfg):
+        try:  # made-up mail never becomes real tasks
+            tasks.add_tasks(cfg, msgs, dry_run=a.dry_run or a.test)
+        except tasks.TaskError as e:
+            task_error = str(e)
+            print(f"amanuense: warning: {e}", file=sys.stderr)
     elapsed = time.time() - t0
     fmt = cfg["output"]["format"]
-    text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed)
+    text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed, task_error)
 
     path = cfg["output"]["path"]
     if a.test and not a.output:
@@ -190,7 +201,8 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
     st = render.stats(msgs)
     cats = ", ".join(f"{k} {v}" for k, v in st["categories"].items())
     print(f"{st['messages']} messages ({st['outside_window']} unread outside the window), {st['triaged']} triaged"
-          f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tagged']} tagged, {st['skipped']} skipped, "
+          f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
+          f"{st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)
 
 
@@ -210,6 +222,17 @@ def cmd_check(cfg, a):
         report("window", True, f"{cfg['window']['default']}: {window.describe(start, end)}")
     except ValueError as e:
         report("window", False, str(e))
+
+    tw = cfg["taskwarrior"]
+    if tasks.enabled(cfg):
+        try:
+            n_ids, n_uids = (len(x) for x in tasks.existing_refs(cfg))
+            report("taskwarrior", True, f"{tw['command']}: on, {n_ids} message-ids and {n_uids} IMAP uids already in task annotations")
+        except tasks.TaskError as e:
+            report("taskwarrior", False, str(e))
+    else:
+        found = "found" if tasks.available(cfg) else "not found"
+        report("taskwarrior", True, f"off (enabled = {tw['enabled']!r}, {tw['command']} {found})")
 
     m = cfg["model"]
     try:
