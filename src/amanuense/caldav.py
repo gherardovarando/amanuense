@@ -66,6 +66,9 @@ def _propfind(c, url, props, depth="0"):
             url = urllib.parse.urljoin(url, data[1])
             continue
         break
+    if status == 200:
+        raise CalendarError(f"{url.split('?')[0]} answered with a web page, not calendar data (a login page?); "
+                            "set calendar.server to the server's DAV address, e.g. https://host/SOGo/dav/")
     if status != 207:
         raise CalendarError(f"PROPFIND {url}: HTTP {status}")
     return ET.fromstring(data), final

@@ -198,7 +198,7 @@ username = "me"
 password_file = "~/.config/amanuense/caldav-password"   # chmod 600
 ```
 
-Then `amanuense calendar list` shows the calendars; copy one's `url` into the section. `amanuense calendar put` sends the last digest right away, to try it. The password is read from `password_file` (refused if others can read it), from `password_command` (e.g. `pass show caldav`), or from `$AMANUENSE_CALDAV_PASSWORD`. It is never stored elsewhere or printed.
+If the server's web address leads to a login page, give its DAV address instead (for SOGo, `https://host/SOGo/dav/`). Then `amanuense calendar list` shows the calendars; copy one's `url` into the section. `amanuense calendar put` sends the last digest right away, to try it. The password is read from `password_file` (refused if others can read it), from `password_command` (e.g. `pass show caldav`), or from `$AMANUENSE_CALDAV_PASSWORD`. It is never stored elsewhere or printed.
 
 The calendar server sees the event text, so use a server you'd trust with the mail itself, or set `template = "counts"` to keep mail text out of it.
 
