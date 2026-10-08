@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, categories, config, render, samples, tasks, templates, waiting, window
+from . import __version__, caldav, categories, config, render, samples, tasks, templates, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -78,6 +78,8 @@ def build_parser():
                    help="how far back to look at sent mail, same format (default 30d)")
     d.add_argument("--waiting-tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="also add a follow-up task for each (default: waiting.tasks in the config)")
+    d.add_argument("--calendar", action=argparse.BooleanOptionalAction, default=None,
+                   help="also put the digest in the calendar as today's event (default: calendar.enabled)")
     d.add_argument("--tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
                         "'auto' = when the task command is installed)")
@@ -113,6 +115,12 @@ def build_parser():
     tc.add_argument("--force", action="store_true", help="overwrite your copy")
     tv = tsub.add_parser("preview", help="render a template on made-up results (no mail, no model)")
     tv.add_argument("name")
+
+    cp = sub.add_parser("calendar", help="find your calendars, or put the last digest in the calendar",
+                        description="Deliver the digest as a daily event in a CalDAV calendar ([calendar] in the config).")
+    csub2 = cp.add_subparsers(dest="action", required=True, metavar="ACTION")
+    csub2.add_parser("list", help="list the calendars on calendar.server (to choose calendar.url)")
+    csub2.add_parser("put", help="put the last digest in the calendar now (replaces today's event)")
 
     c = sub.add_parser("category", help="list categories, add one, or add an example",
                        description="Categories are the `## name` sections of the categories file; "
@@ -172,6 +180,7 @@ def overrides(a):
     put("tag.enabled", g("tag"))
     put("tag.todo_keyword", g("todo_keyword"))
     put("taskwarrior.enabled", g("tasks"))
+    put("calendar.enabled", g("calendar"))
     put("waiting.enabled", g("waiting"))
     put("waiting.after", g("waiting_after"))
     put("waiting.lookback", g("waiting_lookback"))
@@ -232,6 +241,8 @@ def cmd_digest(cfg, a):
     if not a.test:
         save_results(opts, elapsed, task_error, msgs, waits)
     out = write_output(cfg, a, opts, elapsed, task_error, msgs, waits)
+    if cfg["calendar"]["enabled"] and not a.test:  # made-up mail never reaches the calendar
+        out += ", " + deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits)
     if not a.test and not a.dry_run:  # a trial run must not make `-w last` skip mail next time
         window.write_last_run("digest", opts.end)
     summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}",
@@ -316,13 +327,47 @@ def write_output(cfg, a, opts, elapsed, task_error, msgs, waits):
     return ", ".join(written) or "nothing written"
 
 
-def cmd_render(cfg, a):
+def deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits):
+    """Put the day's event in the calendar; returns a short status for the summary line."""
+    c = cfg["calendar"]
+    try:
+        title = templates.render(cfg, c["title_template"], msgs, opts, elapsed, task_error, waits).strip()
+        notes = templates.render(cfg, c["template"], msgs, opts, elapsed, task_error, waits)
+        caldav.put(c, opts.end, title.splitlines()[0] if title else "Mail digest", notes)
+        return f"calendar event at {c['time']}"
+    except (caldav.CalendarError, templates.TemplateError, OSError) as e:
+        print(f"amanuense: warning: calendar: {e}", file=sys.stderr)
+        return "calendar FAILED"
+
+
+def load_results():
     try:
         data = json.loads(results_file().read_text())
     except OSError:
         sys.exit("amanuense: no saved digest yet; run `amanuense digest` first")
     opts = Options(start=datetime.fromisoformat(data["start"]), end=datetime.fromisoformat(data["end"]),
                    unread=data["unread"], tag=data["tag"], dry_run=data["dry_run"], problems=data["problems"])
+    return opts, data
+
+
+def cmd_calendar(cfg, a):
+    c = cfg["calendar"]
+    try:
+        if a.action == "list":
+            if not c.get("server") or not c.get("username"):
+                sys.exit("amanuense: set calendar.server and calendar.username first")
+            for name, url in caldav.discover(c):
+                print(f"{name}\n    url = \"{url}\"")
+        elif a.action == "put":
+            opts, data = load_results()
+            print(deliver_calendar(cfg, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"]))
+    except caldav.CalendarError as e:
+        sys.exit(f"amanuense: calendar: {e}")
+    return 0
+
+
+def cmd_render(cfg, a):
+    opts, data = load_results()
     out = write_output(cfg, a, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"])
     if not a.quiet and out != "stdout":
         print(f"-> {out}")
@@ -498,6 +543,8 @@ def main(argv=None):
         return cmd_category(cfg, a)
     if a.command == "template":
         return cmd_template(cfg, a)
+    if a.command == "calendar":
+        return cmd_calendar(cfg, a)
     try:
         window.parse_window(cfg["window"]["default"])
     except ValueError as e:

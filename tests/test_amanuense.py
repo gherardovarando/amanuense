@@ -512,3 +512,121 @@ path = "{tmp_path}/{{date}}/mail.html"
         a = cli.build_parser().parse_args(["-c", str(cfg_file), "render", "-t", t])
         cfg = config.load(cfg_file, cli.overrides(a))  # -t only changes the template, the file goes next to the usual one
         assert cli.outputs(cfg, a) == [(t, f"{tmp_path}/{{date}}/mail-{{template}}.{ext}")]
+
+
+@pytest.fixture
+def fake_caldav(tmp_path):
+    """A tiny CalDAV server: discovery (principal -> home -> calendars) and PUT."""
+    import http.server
+    import threading
+    store = {}
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def _auth(self):
+            import base64
+            ok = self.headers.get("Authorization") == "Basic " + base64.b64encode(b"me:secret").decode()
+            if not ok:
+                self.send_response(401)
+                self.end_headers()
+            return ok
+
+        def _xml(self, body):
+            data = ('<?xml version="1.0"?><d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">'
+                    + body + "</d:multistatus>").encode()
+            self.send_response(207)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_PROPFIND(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            if not self._auth():
+                return
+            if self.path == "/.well-known/caldav":
+                self.send_response(301)
+                self.send_header("Location", "/dav/")
+                self.end_headers()
+            elif self.path == "/dav/":
+                self._xml("<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal>"
+                          "<d:href>/dav/principals/me/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>")
+            elif self.path == "/dav/principals/me/":
+                self._xml("<d:response><d:href>/dav/principals/me/</d:href><d:propstat><d:prop><c:calendar-home-set>"
+                          "<d:href>/dav/calendars/me/</d:href></c:calendar-home-set></d:prop></d:propstat></d:response>")
+            else:
+                cal = lambda href, name, comp: (
+                    f"<d:response><d:href>{href}</d:href><d:propstat><d:prop><d:displayname>{name}</d:displayname>"
+                    f"<d:resourcetype><d:collection/><c:calendar/></d:resourcetype><c:supported-calendar-component-set>"
+                    f'<c:comp name="{comp}"/></c:supported-calendar-component-set></d:prop></d:propstat></d:response>')
+                self._xml("<d:response><d:href>/dav/calendars/me/</d:href><d:propstat><d:prop><d:resourcetype>"
+                          "<d:collection/></d:resourcetype></d:prop></d:propstat></d:response>"
+                          + cal("/dav/calendars/me/personal/", "Personal", "VEVENT")
+                          + cal("/dav/calendars/me/tasks/", "Tasks", "VTODO"))
+
+        def do_PUT(self):
+            body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+            if not self._auth():
+                return
+            created = self.path not in store
+            store[self.path] = body
+            self.send_response(201 if created else 204)
+            self.end_headers()
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    pw = tmp_path / "pw"
+    pw.write_text("secret\n")
+    pw.chmod(0o600)
+    yield {"server": f"http://127.0.0.1:{srv.server_port}/", "store": store, "password_file": str(pw)}
+    srv.shutdown()
+
+
+def test_ics_escaping_and_folding():
+    from amanuense import caldav
+    start = datetime(2026, 10, 9, 7, 30).astimezone()
+    text = caldav.ics("amanuense-2026-10-09", start, 15, "**5 to-dos**, 2 urgent; ok",
+                      "- ❗ " + "é" * 60 + "\n- second", alarm=True)
+    lines = text.split("\r\n")
+    assert all(len(l.encode()) <= 75 for l in lines)
+    unfolded = text.replace("\r\n ", "")
+    assert r"SUMMARY:5 to-dos\, 2 urgent\; ok" in unfolded and "\\n- second" in unfolded
+    assert "BEGIN:VALARM" in text and "UID:amanuense-2026-10-09" in text
+
+
+def test_calendar_discover_and_put(fake_caldav, tmp_path):
+    from amanuense import caldav
+    c = {**config.DEFAULTS["calendar"], "enabled": True, "server": fake_caldav["server"], "username": "me",
+         "password_file": fake_caldav["password_file"]}
+    found = caldav.discover(c)
+    assert [n for n, _ in found] == ["Personal"]            # the VTODO-only list is left out
+    c["url"] = found[0][1]
+    day = datetime(2026, 10, 9, 5, 31).astimezone()
+    url = caldav.put(c, day, "5 to-dos", "notes")
+    assert url.endswith("/dav/calendars/me/personal/amanuense-2026-10-09.ics")
+    caldav.put(c, day, "6 to-dos", "notes")                  # a rerun replaces the day's event
+    (path, body), = fake_caldav["store"].items()
+    assert "SUMMARY:6 to-dos" in body and "DTSTART:" in body
+    c["password_file"] = str(tmp_path / "loose")
+    (tmp_path / "loose").write_text("x")
+    (tmp_path / "loose").chmod(0o644)
+    with pytest.raises(caldav.CalendarError, match="chmod 600"):
+        caldav.put(c, day, "t", "n")
+    c["password_file"] = fake_caldav["password_file"]
+    c["username"] = "someone"
+    with pytest.raises(caldav.CalendarError, match="refused"):
+        caldav.put(c, day, "t", "n")
+
+
+def test_digest_delivers_to_calendar(fake_caldav, tmp_path, monkeypatch):
+    cfg = config.load(None, {"calendar": {"enabled": True, "server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"],
+                                          "url": fake_caldav["server"] + "dav/calendars/me/personal/"}},
+                      require_file=False)
+    msgs, waits = samples.results(cfg)
+    opts = triage.Options(*window.parse_window("24h"))
+    assert cli.deliver_calendar(cfg, opts, 60, None, msgs, waits).startswith("calendar event")
+    body = next(iter(fake_caldav["store"].values())).replace("\r\n ", "")
+    assert "SUMMARY:5 to-dos (2 urgent)" in body and "Check Section 4" in body

@@ -22,6 +22,7 @@ A private secretary for your inbox. A small language model running on your own m
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
+- **`amanuense calendar`** lists your CalDAV calendars, or puts the last digest in one (see [Calendar](#calendar)).
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
@@ -180,6 +181,26 @@ Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `da
 Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 message`, `3 messages`), and Jinja's own (`length`, `join`, `selectattr`, `sort`, …).
 
 Templates run sandboxed, and unknown variables are an error, not silently empty: `amanuense check` and the start of every digest try each configured template on made-up results first, so a typo never costs a run. Mail text is only ever inserted as data, never run as template code. HTML templates (`*.html.j2`) escape it.
+
+## Calendar
+
+To get the digest on your phone without a new app or service, amanuense can put it in a CalDAV calendar that the phone already syncs (Nextcloud, ownCloud, SOGo, Baïkal, iCloud, Fastmail, a university's DAV server…). Each run creates or replaces one event that morning:
+
+- title: the `oneline` template, counts only (`5 to-dos (2 urgent) · next deadline Sat 10 Oct (research)`), which is what a lock screen shows
+- notes: the `tiny` template
+- a reminder at the event's time, marked private and free
+
+```toml
+[calendar]
+enabled = true
+server = "https://dav.example.org/"
+username = "me"
+password_file = "~/.config/amanuense/caldav-password"   # chmod 600
+```
+
+Then `amanuense calendar list` shows the calendars; copy one's `url` into the section. `amanuense calendar put` sends the last digest right away, to try it. The password is read from `password_file` (refused if others can read it), from `password_command` (e.g. `pass show caldav`), or from `$AMANUENSE_CALDAV_PASSWORD`. It is never stored elsewhere or printed.
+
+The calendar server sees the event text, so use a server you'd trust with the mail itself, or set `template = "counts"` to keep mail text out of it.
 
 ## Categories
 
