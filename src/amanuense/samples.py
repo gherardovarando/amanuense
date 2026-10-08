@@ -32,8 +32,9 @@ class FakeMailbox:
                  24 * 9, now),
         ]
         self.unread = {6}
-        # A message in the first extra folder of the config, if any (e.g. a quarantine or oversized-mail folder).
-        self.extra = {}
+        # The extra folders of the config exist and are empty, except the first one, which has a message
+        # (e.g. a quarantine or oversized-mail folder).
+        self.extra = {f["name"]: [] for f in cfg.get("folders") or []}
         if cfg.get("folders"):
             self.extra[cfg["folders"][0]["name"]] = [
                 _msg(7, "Data Office <data@example.org>", "Dataset for the project (large attachment)",

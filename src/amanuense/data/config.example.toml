@@ -55,6 +55,9 @@ timeout = 600                       # seconds per email
 [output]
 path = "~/amanuense/{date}.md"      # {date} = end of the window; "-" prints to stdout
 format = "markdown"                 # or "json"
+detail = "brief"                    # brief: to-dos by priority, a few FYIs, the rest counted; full: every message
+max_fyi = 10                        # brief: at most this many "worth knowing" lines
+urgent_within = "3d"                # urgent = act within this; a deadline further away is never urgent
 
 [skip]
 # Mail matching these regular expressions (case-insensitive) is listed as skipped

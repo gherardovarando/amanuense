@@ -1,4 +1,4 @@
-"""Command line: amanuense {digest,tag,check,init,config}."""
+"""Command line: amanuense {digest,render,tag,check,init,config,category}."""
 import argparse
 import asyncio
 import json
@@ -45,6 +45,18 @@ def selection_args():
     return p
 
 
+def output_args(p):
+    p.add_argument("-o", "--output", metavar="PATH", help="output file; {date} is replaced; '-' prints to stdout")
+    p.add_argument("--format", choices=["markdown", "json"], help="output format (default markdown)")
+    detail = p.add_mutually_exclusive_group()
+    detail.add_argument("--brief", dest="detail", action="store_const", const="brief",
+                        help="to-dos first, a few things worth knowing, the rest only counted (default)")
+    detail.add_argument("--full", dest="detail", action="store_const", const="full",
+                        help="every triaged message, grouped by category")
+    p.add_argument("--urgent-within", metavar="DUR",
+                   help="urgent = act within this, e.g. 2d (default 3d); a later deadline is never urgent")
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="amanuense", description="Private mail digest and tagging with a local language model.")
     p.add_argument("-c", "--config", type=Path, metavar="FILE",
@@ -56,8 +68,7 @@ def build_parser():
 
     d = sub.add_parser("digest", parents=[sel], help="write a digest of the mail",
                        description="Triage the mail in the window and write a digest.")
-    d.add_argument("-o", "--output", metavar="PATH", help="output file; {date} is replaced; '-' prints to stdout")
-    d.add_argument("--format", choices=["markdown", "json"], help="output format (default markdown)")
+    output_args(d)
     d.add_argument("--tag", action=argparse.BooleanOptionalAction, default=None,
                    help="also tag the messages in the mailbox (default: tag.enabled in the config)")
     d.add_argument("--todo-keyword", metavar="KW", help="with --tag, also set this keyword on to-dos (e.g. $label4)")
@@ -72,6 +83,12 @@ def build_parser():
     d.add_argument("--tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
                         "'auto' = when the task command is installed)")
+
+    r = sub.add_parser("render", help="write the last digest again, e.g. with --full",
+                       description="Render the results of the last digest run again, without reading mail or "
+                                   "calling the model. Writes to the configured output path unless -o.")
+    output_args(r)
+    r.add_argument("--test", action="store_true", help=argparse.SUPPRESS)
 
     t = sub.add_parser("tag", parents=[sel], help="tag messages in the mailbox with their category",
                        description="Set an IMAP keyword with the category on each message. Messages that "
@@ -138,6 +155,8 @@ def overrides(a):
         put("categories_file", str(Path(a.categories).expanduser().resolve()))
     put("output.path", g("output"))
     put("output.format", g("format"))
+    put("output.detail", g("detail"))
+    put("output.urgent_within", g("urgent_within"))
     put("tag.enabled", g("tag"))
     put("tag.todo_keyword", g("todo_keyword"))
     put("taskwarrior.enabled", g("tasks"))
@@ -197,24 +216,58 @@ def cmd_digest(cfg, a):
             task_error = str(e)
             print(f"amanuense: warning: {e}", file=sys.stderr)
     elapsed = time.time() - t0
+    if not a.test:
+        save_results(opts, elapsed, task_error, msgs, waits)
+    out = write_output(cfg, a, opts, elapsed, task_error, msgs, waits)
+    if not a.test:
+        window.write_last_run("digest", opts.end)
+    summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}",
+            file=sys.stderr if out == "stdout" else sys.stdout)
+
+
+def results_file():
+    return window.state_file("digest").with_name("last-digest.json")
+
+
+def save_results(opts, elapsed, task_error, msgs, waits):
+    """Keep the last run's results (local disk, mode 600) so `render` can lay them out again."""
+    p = results_file()
+    p.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    data = {"start": opts.start.isoformat(), "end": opts.end.isoformat(), "unread": opts.unread, "tag": opts.tag,
+            "dry_run": opts.dry_run, "problems": opts.problems, "elapsed": elapsed, "task_error": task_error,
+            "msgs": [{k: v for k, v in m.items() if k != "body"} for m in msgs], "waits": waits}
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(data, f, ensure_ascii=False, default=str)
+
+
+def write_output(cfg, a, opts, elapsed, task_error, msgs, waits):
     fmt = cfg["output"]["format"]
     text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed, task_error, waits)
-
     path = cfg["output"]["path"]
     if a.test and not a.output:
         path = "-"  # made-up mail: print it
     if path == "-":
         sys.stdout.write(text)
-        out = "stdout"
-    else:
-        out = config.expand(path.replace("{date}", f"{opts.end:%Y-%m-%d}"))
-        out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-    if not a.test:
-        window.write_last_run("digest", opts.end)
-    summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}", file=sys.stderr if path == "-" else sys.stdout)
+        return "stdout"
+    out = config.expand(path.replace("{date}", f"{opts.end:%Y-%m-%d}"))
+    out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(text)
+    return out
+
+
+def cmd_render(cfg, a):
+    try:
+        data = json.loads(results_file().read_text())
+    except OSError:
+        sys.exit("amanuense: no saved digest yet; run `amanuense digest` first")
+    opts = Options(start=datetime.fromisoformat(data["start"]), end=datetime.fromisoformat(data["end"]),
+                   unread=data["unread"], tag=data["tag"], dry_run=data["dry_run"], problems=data["problems"])
+    out = write_output(cfg, a, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"])
+    if not a.quiet and out != "stdout":
+        print(f"-> {out}")
 
 
 def cmd_tag(cfg, a):
@@ -358,7 +411,7 @@ def main(argv=None):
     try:
         if a.command == "check":
             return cmd_check(cfg, a)
-        {"digest": cmd_digest, "tag": cmd_tag}[a.command](cfg, a)
+        {"digest": cmd_digest, "render": cmd_render, "tag": cmd_tag}[a.command](cfg, a)
     except MailError as e:
         raise SystemExit(f"amanuense: {e}") from None
     return 0

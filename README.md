@@ -9,14 +9,18 @@ A private secretary for your inbox. A small language model running on your own m
   - whether it needs action
   - a one-line to-do
   - a deadline
+  - a priority (high, normal or low)
   - a summary
 
-  The output is a Markdown or JSON file. It starts with the proposed to-dos sorted by deadline, then lists the emails grouped by category. Emails you already answered are marked as handled.
+  The output is a Markdown or JSON file. By default it is brief: the to-dos, urgent ones first, then by deadline; the mail you're waiting on; and up to ten things worth knowing. Low-priority mail, mail you already answered and skipped mail are only counted. With `--full` it lists every triaged email grouped by category, marking the ones you already answered as handled.
+
+  Small models call too much urgent, so a to-do whose deadline is more than three days away (`output.urgent_within`) is never shown as urgent.
 
   If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
 - **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
+- **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render --full`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
@@ -31,7 +35,7 @@ A private secretary for your inbox. A small language model running on your own m
 
   Sending, forwarding, moving, flagging and deleting are never enabled, so the program can't do them even by mistake. Reading doesn't mark messages as read.
 - The model never chooses which tools to call. The program makes fixed calls, passes only the email text to the model, and gets JSON back.
-- The terminal output is counts only, so no mail content ends up in logs. The digest file is created readable only by you.
+- The terminal output is counts only, so no mail content ends up in logs. The digest file, and the copy of the last results kept for `render`, are created readable only by you.
 - Your configuration and category examples live in `~/.config/amanuense/`, outside the repository.
 
 ## Requirements
@@ -78,6 +82,9 @@ amanuense digest --waiting-after 3d      # flag sent mail with no reply after 3 
 amanuense digest --waiting-lookback 2w   # only look at what you sent in the last two weeks
 amanuense digest --waiting-tasks         # and add a follow-up task for each
 amanuense digest --dry-run               # show "task (dry run)" instead of adding tasks or tags
+amanuense digest --full                  # every message, grouped by category
+amanuense digest --urgent-within 1d      # only same/next-day deadlines count as urgent
+amanuense render --full                  # the last digest again, in full, without rerunning
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
 amanuense tag -w 2w --retag              # re-triage two weeks and replace category tags

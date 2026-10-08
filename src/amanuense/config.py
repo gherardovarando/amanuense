@@ -27,7 +27,7 @@ DEFAULTS = {
         "timeout": 600,
         "think": None,
     },
-    "output": {"path": "~/amanuense/{date}.md", "format": "markdown"},
+    "output": {"path": "~/amanuense/{date}.md", "format": "markdown", "detail": "brief", "max_fyi": 10, "urgent_within": "3d"},
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
@@ -99,6 +99,10 @@ def load(path=None, overrides=None, require_file=True):
     cfg["fallback"] = c.fallback
     cfg["keywords"] = {x.name: x.keyword for x in c.items}
     cfg["categories_prompt"] = c.prompt
+    try:
+        window.parse_duration(cfg["output"]["urgent_within"])
+    except ValueError as e:
+        raise SystemExit(f"config: output.urgent_within: {e}") from None
     for key in ("after", "lookback"):
         try:
             window.parse_duration(cfg["waiting"][key])
@@ -107,6 +111,8 @@ def load(path=None, overrides=None, require_file=True):
     for f in cfg["folders"]:
         if not isinstance(f, dict) or not f.get("name"):
             raise SystemExit("config: every [[folders]] entry needs a name")
+    if cfg["output"].get("detail") not in ("brief", "full"):
+        raise SystemExit(f"config: output.detail must be \"brief\" or \"full\", not {cfg['output'].get('detail')!r}")
     for key in ("subject", "from"):
         try:
             re.compile(cfg["skip"][key])

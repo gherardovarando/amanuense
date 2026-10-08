@@ -167,7 +167,7 @@ def test_digest_selection_and_handled(monkeypatch):
     assert by_uid[6]["outside_window"]           # old unread mail included
     assert by_uid[5]["skip"]                     # noreply sender
     assert by_uid[2]["handled"]                  # replied to in Sent
-    md = render.to_markdown(cfg, msgs, triage.Options(*window.parse_window("24h")), 1)
+    md = render.to_markdown_full(cfg, msgs, triage.Options(*window.parse_window("24h")), 1)
     assert "## Proposed to-dos" in md and "unread, older" in md
 
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg), unread=False)
@@ -261,7 +261,7 @@ def test_extra_folders(monkeypatch):
     days = render.days_left(held)
     assert 8 <= days <= 10
     opts = triage.Options(*window.parse_window("24h"))
-    md = render.to_markdown(cfg, msgs, opts, 1)
+    md = render.to_markdown_full(cfg, msgs, opts, 1)
     assert "## Deleted soon" in md and "in held mail" in md
 
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg), folders=False)
@@ -347,8 +347,10 @@ def test_cli_digest_end_to_end(monkeypatch, tmp_path, capsys):
     out = tmp_path / "digest.md"
     assert cli.main(["digest", "--test", "--no-tasks", "-o", str(out)]) == 0
     md = out.read_text()
-    assert "## Proposed to-dos" in md and "## Waiting for replies" in md and "Figure 2" in md
+    assert "## To do" in md and "## Waiting for replies" in md and "Figure 2" in md
     assert "1 waiting for replies" in capsys.readouterr().out
+    assert cli.main(["digest", "--test", "--no-tasks", "--full", "-o", str(out)]) == 0
+    assert "## Proposed to-dos" in out.read_text()
     assert cli.main(["tag", "--test", "--dry-run"]) == 0
 
 
@@ -372,3 +374,60 @@ def test_waiting_after_option():
     now = datetime.now().astimezone()
     received = [{**m, "folder": "INBOX"} for m in box.inbox] + [{**m, "folder": "Archive"} for m in box.archive]
     assert {s["uid"] for s in waiting.candidates(cfg, box.sent, received, now)} == set()  # Lee: 10 days < 11
+
+
+def fake_priorities(cfg, system, msg):
+    """uid 1: urgent to-do, uid 3: normal to-do, uid 4: worth knowing, others: low-priority FYI."""
+    need, prio = {1: (True, "high"), 3: (True, "normal"), 4: (False, "normal")}.get(int(msg["uid"]), (False, "low"))
+    return model.clean({"category": "research", "needs_action": need, "todo": f"todo {msg['uid']}" if need else None,
+                        "deadline": None, "priority": prio, "summary": f"summary {msg['uid']}"},
+                       cfg["categories"], cfg["fallback"])
+
+
+def test_far_deadline_is_not_urgent():
+    cfg = config.load(None, {}, require_file=False)
+    soon, later = (f"{datetime.now() + timedelta(days=d):%Y-%m-%d}" for d in (1, 12))
+    m = lambda dl: {"ai": {"needs_action": True, "priority": "high", "deadline": dl}}
+    assert [render.priority(m(d), cfg) for d in (soon, later, None)] == ["high", "normal", "high"]
+    cfg["output"]["urgent_within"] = "2w"
+    assert render.priority(m(later), cfg) == "high"
+
+
+def test_clean_priority():
+    r = model.clean({"category": "info", "needs_action": True, "todo": "x", "priority": "urgent!"}, ["info"], "info")
+    assert r["priority"] == "normal"
+    r = model.clean({"category": "info", "needs_action": False, "priority": None}, ["info"], "info")
+    assert r["priority"] == "low"
+
+
+def test_brief_digest(monkeypatch):
+    cfg = config.load(None, {}, require_file=False)
+    monkeypatch.setattr(model, "classify", fake_priorities)
+    start, end = window.parse_window("24h")
+    opts = triage.Options(start=start, end=end, folders=False)
+    msgs = asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
+    md = render.to_markdown(cfg, msgs, opts, 60)
+    assert md.index("todo 1") < md.index("todo 3") and "**Urgent**" in md
+    assert "## Worth knowing" in md and "summary 4" in md
+    assert "summary 6" not in md and "low-priority (research" in md
+    assert "already answered" in md and "skipped by the skip rules" in md
+    cfg["output"]["detail"] = "full"
+    full = render.to_markdown(cfg, msgs, opts, 60)
+    assert "summary 6" in full and "fyi, low" in full
+    with pytest.raises(SystemExit):
+        config.load(None, {"output": {"detail": "short"}}, require_file=False)
+
+
+def test_render_saved_results(monkeypatch, tmp_path):
+    cfg = config.load(None, {}, require_file=False)
+    monkeypatch.setattr(model, "classify", fake_priorities)
+    start, end = window.parse_window("24h")
+    opts = triage.Options(start=start, end=end, folders=False)
+    msgs = asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
+    cli.save_results(opts, 60, None, msgs, [])
+    assert oct(cli.results_file().stat().st_mode & 0o777) == "0o600"
+    out = tmp_path / "again.md"
+    assert cli.main(["render", "--test", "--full", "-o", str(out)]) == 0
+    assert "summary 6" in out.read_text()
+    assert cli.main(["render", "--test", "-o", str(out)]) == 0
+    assert "summary 6" not in out.read_text()
