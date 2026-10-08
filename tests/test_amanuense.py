@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from amanuense import categories, cli, config, model, render, triage, window
+from amanuense import categories, cli, config, model, render, samples, templates, triage, window
 from amanuense.samples import FakeMailbox
 
 @pytest.fixture(autouse=True)
@@ -167,7 +167,7 @@ def test_digest_selection_and_handled(monkeypatch):
     assert by_uid[6]["outside_window"]           # old unread mail included
     assert by_uid[5]["skip"]                     # noreply sender
     assert by_uid[2]["handled"]                  # replied to in Sent
-    md = render.to_markdown_full(cfg, msgs, triage.Options(*window.parse_window("24h")), 1)
+    md = templates.render(cfg, "long", msgs, triage.Options(*window.parse_window("24h")), 1)
     assert "## Proposed to-dos" in md and "unread, older" in md
 
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg), unread=False)
@@ -258,10 +258,10 @@ def test_extra_folders(monkeypatch):
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
     held = next(m for m in msgs if m["uid"] == 7)
     assert held["folder"] == "Quarantine" and "ai" in held      # read and triaged, though 4 days old
-    days = render.days_left(held)
+    days = templates.item(held, cfg)["days_left"]
     assert 8 <= days <= 10
     opts = triage.Options(*window.parse_window("24h"))
-    md = render.to_markdown_full(cfg, msgs, opts, 1)
+    md = templates.render(cfg, "long", msgs, opts, 1)
     assert "## Deleted soon" in md and "in held mail" in md
 
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg), folders=False)
@@ -276,7 +276,7 @@ def test_missing_folder_is_reported(monkeypatch):
     box.extra = {}  # the folder doesn't exist on the server
     msgs = asyncio.run(entered(cfg, box, opts))
     assert len(msgs) == 6 and "could not read folder Nope" in opts.problems[0]  # the run went on
-    assert "**Problem:** could not read folder Nope" in render.to_markdown(cfg, msgs, opts, 1)
+    assert "**Problem:** could not read folder Nope" in templates.render(cfg, "brief", msgs, opts, 1)
 
 
 def test_tasks_for_expiring_mail(monkeypatch, taskdb):
@@ -349,7 +349,7 @@ def test_cli_digest_end_to_end(monkeypatch, tmp_path, capsys):
     md = out.read_text()
     assert "## To do" in md and "## Waiting for replies" in md and "Figure 2" in md
     assert "1 waiting for replies" in capsys.readouterr().out
-    assert cli.main(["digest", "--test", "--no-tasks", "--full", "-o", str(out)]) == 0
+    assert cli.main(["digest", "--test", "--no-tasks", "-t", "long", "-o", str(out)]) == 0
     assert "## Proposed to-dos" in out.read_text()
     assert cli.main(["tag", "--test", "--dry-run"]) == 0
 
@@ -388,9 +388,9 @@ def test_far_deadline_is_not_urgent():
     cfg = config.load(None, {}, require_file=False)
     soon, later = (f"{datetime.now() + timedelta(days=d):%Y-%m-%d}" for d in (1, 12))
     m = lambda dl: {"ai": {"needs_action": True, "priority": "high", "deadline": dl}}
-    assert [render.priority(m(d), cfg) for d in (soon, later, None)] == ["high", "normal", "high"]
+    assert [templates.priority(m(d), cfg) for d in (soon, later, None)] == ["high", "normal", "high"]
     cfg["output"]["urgent_within"] = "2w"
-    assert render.priority(m(later), cfg) == "high"
+    assert templates.priority(m(later), cfg) == "high"
 
 
 def test_clean_priority():
@@ -406,16 +406,13 @@ def test_brief_digest(monkeypatch):
     start, end = window.parse_window("24h")
     opts = triage.Options(start=start, end=end, folders=False)
     msgs = asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
-    md = render.to_markdown(cfg, msgs, opts, 60)
+    md = templates.render(cfg, "brief", msgs, opts, 60)
     assert md.index("todo 1") < md.index("todo 3") and "**Urgent**" in md
     assert "## Worth knowing" in md and "summary 4" in md
     assert "summary 6" not in md and "low-priority (research" in md
     assert "already answered" in md and "skipped by the skip rules" in md
-    cfg["output"]["detail"] = "full"
-    full = render.to_markdown(cfg, msgs, opts, 60)
+    full = templates.render(cfg, "long", msgs, opts, 60)
     assert "summary 6" in full and "fyi, low" in full
-    with pytest.raises(SystemExit):
-        config.load(None, {"output": {"detail": "short"}}, require_file=False)
 
 
 def test_render_saved_results(monkeypatch, tmp_path):
@@ -427,7 +424,91 @@ def test_render_saved_results(monkeypatch, tmp_path):
     cli.save_results(opts, 60, None, msgs, [])
     assert oct(cli.results_file().stat().st_mode & 0o777) == "0o600"
     out = tmp_path / "again.md"
-    assert cli.main(["render", "--test", "--full", "-o", str(out)]) == 0
+    assert cli.main(["render", "--test", "-t", "long", "-o", str(out)]) == 0
     assert "summary 6" in out.read_text()
     assert cli.main(["render", "--test", "-o", str(out)]) == 0
     assert "summary 6" not in out.read_text()
+
+
+def test_shipped_templates_render():
+    cfg = config.load(None, {}, require_file=False)
+    msgs, waits = samples.results(cfg)
+    opts = triage.Options(*window.parse_window("24h"))
+    names = set(templates.available())
+    assert {"brief", "long", "tiny", "todo", "counts", "oneline", "page"} <= names and "_macros" not in names
+    for name in names:
+        assert templates.render(cfg, name, msgs, opts, 60, None, waits).strip(), name
+    one = templates.render(cfg, "oneline", msgs, opts, 60, None, waits)
+    assert one.count("\n") == 1 and "2 urgent" in one
+
+
+def test_counts_and_oneline_have_no_mail_text():
+    cfg = config.load(None, {}, require_file=False)
+    msgs, waits = samples.results(cfg)
+    opts = triage.Options(*window.parse_window("24h"))
+    text = "".join(templates.render(cfg, n, msgs, opts, 60, None, waits) for n in ("counts", "oneline"))
+    for m in msgs:
+        for value in (m.get("subject"), m.get("from"), (m.get("ai") or {}).get("summary"), (m.get("ai") or {}).get("todo")):
+            if value and len(value) > 3:
+                assert value not in text
+    assert "Prof Lee" not in text and "Figure 2" not in text
+
+
+def test_mail_text_is_inert_in_templates():
+    cfg = config.load(None, {}, require_file=False)
+    msgs, waits = samples.results(cfg)
+    msgs[0]["ai"]["todo"] = "Pay <b>now</b> {{ out }} {% if 1 %}x{% endif %}"
+    opts = triage.Options(*window.parse_window("24h"))
+    assert "Pay &lt;b&gt;now&lt;/b&gt; {{ out }} {% if 1 %}x{% endif %}" in templates.render(cfg, "page", msgs, opts, 60, None, waits)
+    assert "Pay <b>now</b> {{ out }} {% if 1 %}x{% endif %}" in templates.render(cfg, "brief", msgs, opts, 60, None, waits)
+
+
+def test_user_template_and_errors(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    cfg = config.load(None, {}, require_file=False)
+    assert cli.main(["template", "copy", "tiny", "mine"]) == 0
+    mine = templates.user_dir() / "mine.md.j2"
+    assert mine.exists() and (templates.user_dir() / "_macros.j2").exists()
+    mine.write_text("{% import '_macros.j2' as x %}{{ todos | length }} things; {{ out.greeting }}\n")
+    cfg["output"]["greeting"] = "hello"
+    msgs, waits = samples.results(cfg)
+    opts = triage.Options(*window.parse_window("24h"))
+    assert templates.render(cfg, "mine", msgs, opts, 60) == "5 things; hello\n"
+    mine.write_text("{{ todos | length }} {{ nonsense }}\n")
+    with pytest.raises(templates.TemplateError, match="nonsense"):
+        templates.render(cfg, "mine", msgs, opts, 60)
+    mine.write_text("{% for %}\n")
+    with pytest.raises(templates.TemplateError, match="line 1"):
+        templates.render(cfg, "mine", msgs, opts, 60)
+    with pytest.raises(templates.TemplateError, match="available"):
+        templates.find("nope")
+    cfg["output"]["template"] = "mine"
+    with pytest.raises(SystemExit, match="template"):  # a digest stops before reading any mail
+        cli.check_templates(cfg, cli.build_parser().parse_args(["digest"]))
+
+
+def test_several_outputs(monkeypatch, tmp_path):
+    from amanuense import waiting
+    monkeypatch.setattr(model, "classify", fake_classify)
+    monkeypatch.setattr(waiting, "ask", fake_ask)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(f"""
+categories_file = "{config.resources.files('amanuense') / 'data' / 'categories.example.md'}"
+[output]
+template = "brief"
+path = "{tmp_path}/{{date}}/mail.md"
+[[outputs]]
+template = "oneline"
+path = "{tmp_path}/{{date}}/mail.txt"
+[[outputs]]
+template = "page"
+path = "{tmp_path}/{{date}}/mail.html"
+""")
+    a = cli.build_parser().parse_args(["-c", str(cfg_file), "digest"])
+    cfg = config.load(cfg_file, {}, require_file=True)
+    paths = [p for _, p in cli.outputs(cfg, a)]
+    assert [p.rsplit(".", 1)[1] for p in paths] == ["md", "txt", "html"]
+    for t, ext in (("long", "md"), ("page", "html"), ("json", "json")):
+        a = cli.build_parser().parse_args(["-c", str(cfg_file), "render", "-t", t])
+        cfg = config.load(cfg_file, cli.overrides(a))  # -t only changes the template, the file goes next to the usual one
+        assert cli.outputs(cfg, a) == [(t, f"{tmp_path}/{{date}}/mail-{{template}}.{ext}")]

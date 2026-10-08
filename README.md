@@ -12,7 +12,7 @@ A private secretary for your inbox. A small language model running on your own m
   - a priority (high, normal or low)
   - a summary
 
-  The output is a Markdown or JSON file. By default it is brief: the to-dos, urgent ones first, then by deadline; the mail you're waiting on; and up to ten things worth knowing. Low-priority mail, mail you already answered and skipped mail are only counted. With `--full` it lists every triaged email grouped by category, marking the ones you already answered as handled.
+  The layout of the output is a template you choose (see [Templates](#templates)). The default, `brief`, has the to-dos, urgent ones first, then by deadline; the mail you're waiting on; and up to ten things worth knowing. Low-priority mail, mail you already answered and skipped mail are only counted. `long` lists every triaged email grouped by category, and there are shorter and safer-to-share layouts too. One run can write several files, each with its own template.
 
   Small models call too much urgent, so a to-do whose deadline is more than three days away (`output.urgent_within`) is never shown as urgent.
 
@@ -20,7 +20,8 @@ A private secretary for your inbox. A small language model running on your own m
 - **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
-- **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render --full`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
+- **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
+- **`amanuense template`** lists, shows, copies and previews the digest templates.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
@@ -40,7 +41,7 @@ A private secretary for your inbox. A small language model running on your own m
 
 ## Requirements
 
-- Python 3.11 or later
+- Python 3.11 or later (installs `mcp` and `jinja2`)
 - A model server. With Ollama, `qwen3:4b-instruct` (about 2.5 GB) works on a 4-core CPU without a GPU, at roughly 30 seconds per email.
 - [imap-mcp-server](https://github.com/nikolausm/imap-mcp-server) with your IMAP account configured in it
 
@@ -74,7 +75,7 @@ amanuense digest                         # last 24 h + older unread mail -> outp
 amanuense digest -w yesterday            # yesterday, midnight to midnight
 amanuense digest -w 3d --no-unread       # last 3 days only
 amanuense digest -w last                 # since the previous successful digest
-amanuense digest -w 2026-10-01..2026-10-05 --format json -o week.json
+amanuense digest -w 2026-10-01..2026-10-05 -t json -o week.json
 amanuense digest --tag                   # digest, and tag the messages in the mailbox
 amanuense digest --no-tasks              # don't add Taskwarrior tasks this time
 amanuense digest --no-extra-folders      # inbox only
@@ -82,9 +83,12 @@ amanuense digest --waiting-after 3d      # flag sent mail with no reply after 3 
 amanuense digest --waiting-lookback 2w   # only look at what you sent in the last two weeks
 amanuense digest --waiting-tasks         # and add a follow-up task for each
 amanuense digest --dry-run               # show "task (dry run)" instead of adding tasks or tags
-amanuense digest --full                  # every message, grouped by category
+amanuense digest -t long                 # every message, grouped by category
+amanuense digest -t tiny -o -            # a glance, printed
 amanuense digest --urgent-within 1d      # only same/next-day deadlines count as urgent
-amanuense render --full                  # the last digest again, in full, without rerunning
+amanuense render -t long                 # the last run again, in full, next to the usual file
+amanuense template list                  # the layouts you can use
+amanuense template preview counts        # try a layout on made-up results
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
 amanuense tag -w 2w --retag              # re-triage two weeks and replace category tags
@@ -124,6 +128,58 @@ A cron job:
 ```
 
 Or a systemd user timer that runs the same command.
+
+## Templates
+
+The digest's layout is a [Jinja](https://jinja.palletsprojects.com/en/stable/templates/) template. The package does the work (collecting, triaging, sorting, counting) and the template only decides what to show and how.
+
+| Template | What it shows |
+|---|---|
+| `brief` (default) | To-dos with urgent ones first, waiting for replies, up to `max_fyi` things worth knowing; the rest counted |
+| `long` | Everything: to-dos, waiting for replies, every triaged email by category with its summary, skipped mail |
+| `tiny` | A glance for the phone: urgent to-dos and one line of counts |
+| `todo` | Only the to-do checklist, grouped by category |
+| `counts` | Numbers, categories and deadline dates only: no sender, subject or summary, so no mail text |
+| `oneline` | One line for a notification or status bar: counts and the next deadline, no mail text |
+| `page` | The brief digest as a self-contained HTML page for the phone, with light and dark mode |
+| `json` | Every field of every message, for other programs (built in, not a template) |
+
+Choose one with `output.template` or `-t`, or write several files per run with `[[outputs]]` in the config. To change one, copy it and edit the copy:
+
+```sh
+amanuense template copy brief mine        # -> ~/.config/amanuense/templates/mine.md.j2
+amanuense template preview mine           # made-up results: no mail, no model, instant
+amanuense render -t mine                  # the last real run, in your layout
+```
+
+A template in `~/.config/amanuense/templates/` overrides a shipped one with the same name. The file extension before `.j2` (`.md`, `.html`, `.txt`) is the extension of the output file. `_macros.j2` has the shared pieces (a to-do line, a waiting line); `{% import "_macros.j2" as x %}` and `{{ x.todo(m) }}`.
+
+**What a template sees**
+
+| Variable | Contents |
+|---|---|
+| `todos` | Open to-dos, urgent first, then by deadline and category |
+| `urgent` | The urgent ones among them |
+| `fyi` | Open emails without an action but worth knowing (priority normal or high) |
+| `low` | Open low-priority emails without an action |
+| `handled` | Emails you already answered |
+| `skipped`, `errors` | Emails skipped by the rules, and emails the model failed on |
+| `expiring` | Emails in folders the server empties soon, soonest first |
+| `older_unread` | Unread emails from before the window |
+| `messages`, `triaged` | Every email read, and those the model triaged |
+| `by_category` | A list of `{name, items}`, one per category that has emails |
+| `waits` | Sent mail waiting for a reply: `subject`, `to`, `to_list`, `date`, `days`, `waiting_for`, `category`, `task` |
+| `count(list)` | `{category: number}` for a list of emails |
+| `window` | `start`, `end`, `text` |
+| `now`, `model`, `minutes`, `categories`, `problems`, `task_error`, `tagging`, `dry_run`, `unread_included` | The run |
+| `waiting_after`, `waiting_lookback` | The waiting settings, in words |
+| `out` | The `[output]` section of the config: any key you add there is `out.<key>` |
+
+Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
+
+Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 message`, `3 messages`), and Jinja's own (`length`, `join`, `selectattr`, `sort`, …).
+
+Templates run sandboxed, and unknown variables are an error, not silently empty: `amanuense check` and the start of every digest try each configured template on made-up results first, so a typo never costs a run. Mail text is only ever inserted as data, never run as template code. HTML templates (`*.html.j2`) escape it.
 
 ## Categories
 

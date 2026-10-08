@@ -107,3 +107,47 @@ class FakeMailbox:
 
     async def remove_keyword(self, folder, uid, keyword):
         self.written.append(("remove", uid, keyword))
+
+
+def results(cfg):
+    """Made-up triage results (no mailbox, no model), for previewing and checking templates."""
+    now = datetime.now().astimezone()
+    cats = cfg["categories"]
+    pick = lambda *names: next((c for c in names if c in cats), cfg["fallback"])
+    day = lambda d: f"{now + timedelta(days=d):%Y-%m-%d}"
+    box = FakeMailbox({**cfg, "folders": cfg.get("folders") or [{"name": "Held"}]})
+    held = next(iter(box.extra.values()))[0]
+    verdicts = {  # uid: (category, needs_action, todo, deadline, priority, summary)
+        1: (pick("admin"), True, "Send the signed trip invoices to accounting.", day(6), "normal",
+            "Accounting needs the signed invoices of the trip."),
+        2: (pick("research"), True, "Check Section 4 of the draft.", day(2), "high",
+            "Anna pushed new simulations and asks to check Section 4."),
+        3: (pick("reviewing"), True, "Accept or decline the review invitation.", day(7), "normal",
+            "A journal invites you to review a manuscript."),
+        4: (pick("teaching"), True, "Tell the student whether topic 5 is in the exam.", None, "high",
+            "A student asks whether topic 5 is in Tuesday's exam."),
+        6: (pick("research"), True, "Send a letter of support for the joint grant.", day(12), "normal",
+            "A colleague asks for a letter of support."),
+        7: (pick("research"), False, None, None, "normal", "The full project dataset, sent as a large attachment."),
+        8: (pick("info"), False, None, None, "low", "The department newsletter."),
+    }
+    msgs = [dict(m) for m in box.inbox] + [{**held, "folder": next(iter(box.extra)), "folder_label": "held mail",
+                                            "expires": (now + timedelta(days=4)).isoformat()}]
+    msgs.append(_msg(8, "Department <dept@example.org>", "Newsletter", "...", 20, now))
+    for m in msgs:
+        m.pop("body", None)
+        m["handled"] = False
+        if m["uid"] == 5:
+            m["skip"] = True
+        elif m["uid"] in verdicts:
+            c, need, todo, dl, prio, summary = verdicts[m["uid"]]
+            m["ai"] = {"category": c, "needs_action": need, "todo": todo, "deadline": dl, "priority": prio,
+                       "summary": summary}
+    msgs.append({**_msg(9, "Bob <bob@example.org>", "Re: slides", "", 30, now), "handled": True,
+                 "ai": {"category": pick("teaching"), "needs_action": True, "todo": "Answer Bob.", "deadline": None,
+                        "priority": "normal", "summary": "Bob asks about the slides; you answered."}})
+    sent = next(s for s in box.sent if s["uid"] == 102)
+    waits = [{**{k: v for k, v in sent.items() if k != "body"}, "days": 10,
+              "waiting": {"expects_reply": True, "waiting_for": "the final Figure 2 from Prof Lee",
+                          "category": pick("research")}}]
+    return msgs, waits

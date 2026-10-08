@@ -1,0 +1,51 @@
+{# Brief (default): to-dos with urgent ones first, waiting for replies, a few things worth knowing; the rest only counted. #}
+{% import "_macros.j2" as x %}
+{% set max_fyi = out.max_fyi | default(10) %}
+# Mail digest {{ window.end | date("%Y-%m-%d") }}
+
+{{ window.text }} · {{ messages | length | plural("message") }} · {{ todos | length | plural("to-do") }}{% if waits %} · {{ waits | length }} waiting for replies{% endif %}
+
+
+{{ x.problems(problems, task_error) }}
+## To do
+
+{% for m in todos %}
+{% if loop.first and m.priority == "high" %}
+**Urgent**
+{% endif %}
+{% if m.priority != "high" and (loop.first or loop.previtem.priority == "high") and urgent %}
+
+**Then**
+{% endif %}
+{{ x.todo(m) }}
+{% else %}
+- nothing
+{% endfor %}
+
+{% if waits %}
+## Waiting for replies
+
+{% for s in waits %}
+{{ x.waiting(s) }}
+{% endfor %}
+{% endif %}
+
+{% if fyi %}
+## Worth knowing
+
+{% for m in fyi[:max_fyi] %}
+- {{ m.summary }}{{ x.expiry(m) }} — {{ m.sender }}
+{% endfor %}
+{% endif %}
+
+{% set left_low = low + fyi[max_fyi:] %}
+{% set left = [] %}
+{% if left_low %}{% set _ = left.append((left_low | length) ~ " low-priority (" ~ x.counts(count(left_low)) ~ ")") %}{% endif %}
+{% if handled %}{% set _ = left.append((handled | length) ~ " already answered") %}{% endif %}
+{% if skipped %}{% set _ = left.append((skipped | length) ~ " skipped by the skip rules") %}{% endif %}
+{% if errors %}{% set _ = left.append((errors | length) ~ " not triaged (error)") %}{% endif %}
+{% if left %}
+Left out: {{ left | join(", ") }}. `amanuense render -t long` writes everything next to this file.
+{% endif %}
+
+_Sorted by {{ model }} on this machine in {{ minutes }} min; check its guesses._

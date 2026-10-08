@@ -1,0 +1,66 @@
+{# Page: the brief digest as a self-contained HTML page, readable on a phone (light and dark mode). #}
+{% set max_fyi = out.max_fyi | default(10) %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mail {{ window.end | date("%a %d %b") }}</title>
+<style>
+  :root { --bg: #fafaf8; --fg: #1d1d1b; --muted: #6b6b66; --line: #e4e4de; --urgent: #b42318; --chip: #efefe9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --fg: #ececea; --muted: #9a9a94; --line: #2d2d2a; --urgent: #ff7a6b; --chip: #262624; }
+  }
+  body { background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, sans-serif; margin: 0 auto; max-width: 42rem; padding: 1rem; }
+  h1 { font-size: 1.3rem; margin: .2rem 0; }
+  h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 1.6rem 0 .5rem; }
+  .meta, .foot { color: var(--muted); font-size: .9rem; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li { padding: .55rem 0; border-bottom: 1px solid var(--line); }
+  .who { color: var(--muted); font-size: .9rem; }
+  .chip { background: var(--chip); border-radius: 1rem; padding: 0 .5rem; font-size: .8rem; margin-left: .3rem; }
+  .urgent { color: var(--urgent); font-weight: 600; }
+  .problem { color: var(--urgent); }
+</style>
+</head>
+<body>
+<h1>Mail {{ window.end | date("%A %d %B") }}</h1>
+<p class="meta">{{ messages | length | plural("message") }} · {{ todos | length | plural("to-do") }}{% if urgent %} · <span class="urgent">{{ urgent | length }} urgent</span>{% endif %}{% if waits %} · {{ waits | length }} waiting{% endif %}</p>
+{% if task_error %}<p class="problem">Taskwarrior failed: {{ task_error }}</p>{% endif %}
+{% for p in problems %}<p class="problem">{{ p }}</p>{% endfor %}
+
+<h2>To do</h2>
+<ul>
+{% for m in todos %}
+  <li>{% if m.priority == "high" %}<span class="urgent">●</span> {% endif %}{{ m.todo }}
+    {% if m.deadline %}<span class="chip">due {{ m.deadline | date("%a %d %b") }}</span>{% endif %}
+    {% if m.expires %}<span class="chip">⏳ deleted {{ m.expires | date("%d %b") }}</span>{% endif %}
+    <div class="who">{{ m.category }} · {{ m.sender }} · uid {{ m.uid }}{% if m.task == "added" %} · task added{% elif m.task == "exists" %} · task exists{% endif %}</div></li>
+{% else %}
+  <li>Nothing.</li>
+{% endfor %}
+</ul>
+
+{% if waits %}
+<h2>Waiting for replies</h2>
+<ul>
+{% for s in waits %}
+  <li>{{ s.waiting_for or s.subject }}<div class="who">{{ s.to }} · {{ s.days }} days · {{ s.subject }}</div></li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% if fyi %}
+<h2>Worth knowing</h2>
+<ul>
+{% for m in fyi[:max_fyi] %}
+  <li>{{ m.summary }}<div class="who">{{ m.category }} · {{ m.sender }}</div></li>
+{% endfor %}
+</ul>
+{% endif %}
+
+{% set left_low = low + fyi[max_fyi:] %}
+<p class="foot">Left out: {{ left_low | length }} low-priority, {{ handled | length }} already answered, {{ skipped | length }} skipped.
+Sorted by {{ model }} on this machine; check its guesses.</p>
+</body>
+</html>

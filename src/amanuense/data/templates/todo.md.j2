@@ -1,0 +1,16 @@
+{# To-do: only the checklist, grouped by category — handy to paste into notes. #}
+{% import "_macros.j2" as x %}
+{% for c in categories %}
+{% set items = todos | selectattr("category", "equalto", c) | list %}
+{% if items %}
+### {{ c }}
+
+{% for m in items %}
+{{ x.todo(m, uid=false, category=false) }}{{ " ❗" if m.priority == "high" }}
+{% endfor %}
+
+{% endif %}
+{% endfor %}
+{% if not todos %}
+Nothing to do from mail.
+{% endif %}

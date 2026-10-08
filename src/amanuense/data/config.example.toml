@@ -53,11 +53,21 @@ timeout = 600                       # seconds per email
 # think = false                     # Ollama: turn off "thinking" for reasoning models such as qwen3:4b
 
 [output]
-path = "~/amanuense/{date}.md"      # {date} = end of the window; "-" prints to stdout
-format = "markdown"                 # or "json"
-detail = "brief"                    # brief: to-dos by priority, a few FYIs, the rest counted; full: every message
-max_fyi = 10                        # brief: at most this many "worth knowing" lines
+# Layout: brief, long, tiny, todo, counts, oneline, page (HTML), json, or your own template
+# (`amanuense template list`, `amanuense template copy brief mine`).
+template = "brief"
+path = "~/amanuense/{date}.md"      # {date} = end of the window, {template} = template name; "-" prints to stdout
+max_fyi = 10                        # brief, page: at most this many "worth knowing" lines
 urgent_within = "3d"                # urgent = act within this; a deadline further away is never urgent
+# Any other key you add here reaches templates as out.<key>.
+
+# More files from the same run, each with its own layout:
+# [[outputs]]
+# template = "page"
+# path = "~/amanuense/{date}.html"
+# [[outputs]]
+# template = "oneline"
+# path = "~/amanuense/{date}.txt"
 
 [skip]
 # Mail matching these regular expressions (case-insensitive) is listed as skipped

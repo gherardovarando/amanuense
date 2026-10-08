@@ -1,0 +1,37 @@
+{# Building blocks shared by the shipped Markdown templates. Import with
+   {% import "_macros.j2" as x %} and call e.g. {{ x.todo(m) }}. #}
+
+{% macro task_note(t, followup=false) -%}
+{% if t == "added" %} · {{ "follow-up task" if followup else "task" }} added{% elif t == "would add" %} · task (dry run){% elif t == "exists" %} · task exists{% endif %}
+{%- endmacro %}
+
+{% macro expiry(m) -%}
+{% if m.expires %} ⏳ deleted {{ m.expires | date("%d %b") }}{% endif %}
+{%- endmacro %}
+
+{% macro due(m) -%}
+{% if m.deadline %} **(due {{ m.deadline | date("%a %d %b") }})**{% endif %}
+{%- endmacro %}
+
+{% macro todo(m, uid=true, category=true) -%}
+- [ ] {{ m.todo }}{{ due(m) }}{{ expiry(m) }} — {% if category %}{{ m.category }}, {% endif %}{{ m.sender }}{% if uid %}, uid {{ m.uid }}{% endif %}{{ task_note(m.task) }}
+{%- endmacro %}
+
+{% macro waiting(s) -%}
+- **{{ s.subject }}** — {{ s.to }}, {{ s.days }} days: {{ s.waiting_for }}{{ task_note(s.task, true) }}
+{%- endmacro %}
+
+{% macro problems(ctx_problems, task_error) -%}
+{% if task_error %}
+Taskwarrior failed, no tasks were added: {{ task_error }}
+
+{% endif %}
+{% for p in ctx_problems %}
+**Problem:** {{ p }}
+
+{% endfor %}
+{%- endmacro %}
+
+{% macro counts(d) -%}
+{% for c, n in d.items() %}{{ c }} {{ n }}{{ ", " if not loop.last }}{% endfor %}
+{%- endmacro %}

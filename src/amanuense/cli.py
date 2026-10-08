@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, categories, config, render, tasks, waiting, window
+from . import __version__, categories, config, render, samples, tasks, templates, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -46,13 +46,11 @@ def selection_args():
 
 
 def output_args(p):
-    p.add_argument("-o", "--output", metavar="PATH", help="output file; {date} is replaced; '-' prints to stdout")
-    p.add_argument("--format", choices=["markdown", "json"], help="output format (default markdown)")
-    detail = p.add_mutually_exclusive_group()
-    detail.add_argument("--brief", dest="detail", action="store_const", const="brief",
-                        help="to-dos first, a few things worth knowing, the rest only counted (default)")
-    detail.add_argument("--full", dest="detail", action="store_const", const="full",
-                        help="every triaged message, grouped by category")
+    p.add_argument("-t", "--template", metavar="NAME|FILE",
+                   help="layout: brief (default), long, tiny, todo, counts, oneline, page (HTML), json, "
+                        "or your own; see `amanuense template list`")
+    p.add_argument("-o", "--output", metavar="PATH",
+                   help="output file; {date} and {template} are replaced; '-' prints to stdout")
     p.add_argument("--urgent-within", metavar="DUR",
                    help="urgent = act within this, e.g. 2d (default 3d); a later deadline is never urgent")
 
@@ -100,6 +98,21 @@ def build_parser():
     i = sub.add_parser("init", help="create a config and a categories file to edit")
     i.add_argument("--force", action="store_true", help="overwrite existing files")
     sub.add_parser("config", parents=[sel], help="print the effective configuration")
+
+    tp = sub.add_parser("template", help="list, show, copy or preview digest templates",
+                        description="Digest layouts are Jinja templates. Shipped ones can be copied to "
+                                    f"{templates.user_dir()} and edited; a template there overrides the shipped one "
+                                    "with the same name.")
+    tsub = tp.add_subparsers(dest="action", required=True, metavar="ACTION")
+    tsub.add_parser("list", help="list the templates")
+    ts = tsub.add_parser("show", help="print a template's source")
+    ts.add_argument("name")
+    tc = tsub.add_parser("copy", help="copy a shipped template to your templates folder to edit it")
+    tc.add_argument("name")
+    tc.add_argument("new_name", nargs="?", help="name of the copy (default: the same name)")
+    tc.add_argument("--force", action="store_true", help="overwrite your copy")
+    tv = tsub.add_parser("preview", help="render a template on made-up results (no mail, no model)")
+    tv.add_argument("name")
 
     c = sub.add_parser("category", help="list categories, add one, or add an example",
                        description="Categories are the `## name` sections of the categories file; "
@@ -154,8 +167,7 @@ def overrides(a):
     if g("categories"):
         put("categories_file", str(Path(a.categories).expanduser().resolve()))
     put("output.path", g("output"))
-    put("output.format", g("format"))
-    put("output.detail", g("detail"))
+    put("output.template", g("template"))
     put("output.urgent_within", g("urgent_within"))
     put("tag.enabled", g("tag"))
     put("tag.todo_keyword", g("todo_keyword"))
@@ -200,6 +212,7 @@ async def session(cfg, a, opts, write, followups=False):
 
 
 def cmd_digest(cfg, a):
+    check_templates(cfg, a)
     opts = make_options(cfg, a, "digest")
     t0 = time.time()
     msgs, waits = asyncio.run(session(cfg, a, opts, write=opts.tag and not opts.dry_run,
@@ -241,21 +254,66 @@ def save_results(opts, elapsed, task_error, msgs, waits):
         json.dump(data, f, ensure_ascii=False, default=str)
 
 
+def outputs(cfg, a):
+    """(template, path) pairs to write. -t or -o on the command line mean just that one output."""
+    main = (cfg["output"]["template"], cfg["output"]["path"])
+    if getattr(a, "test", False) and not getattr(a, "output", None):
+        return [(main[0], "-")]  # made-up mail: print it
+    if getattr(a, "template", None) and not getattr(a, "output", None) and main[1] != "-" and "{template}" not in main[1]:
+        # another layout of the same run goes next to the usual file, e.g. mail-2026-10-08-long.md
+        p = Path(main[1])
+        return [(main[0], str(p.with_name(f"{p.stem}-{{template}}{extension(main[0], p.suffix)}")))]
+    if getattr(a, "template", None) or getattr(a, "output", None):
+        return [main]
+    return [main] + [(o["template"], o["path"]) for o in cfg["outputs"]]
+
+
+def extension(name, default):
+    """.html for page.html.j2, .txt for oneline.txt.j2, .json for json."""
+    if name == "json":
+        return ".json"
+    try:
+        parts = templates.find(name).name.split(".")
+    except templates.TemplateError:
+        return default
+    return f".{parts[-2]}" if len(parts) > 2 else default
+
+
+def check_templates(cfg, a):
+    """Fail early (before an hour of triage) on a missing or broken template."""
+    msgs, waits = samples.results(cfg)
+    start, end = window.parse_window("24h")
+    for name, _ in outputs(cfg, a):
+        if name != "json":
+            try:
+                templates.render(cfg, name, msgs, Options(start=start, end=end), 60, None, waits)
+            except templates.TemplateError as e:
+                raise SystemExit(f"amanuense: template: {e}") from None
+
+
 def write_output(cfg, a, opts, elapsed, task_error, msgs, waits):
-    fmt = cfg["output"]["format"]
-    text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed, task_error, waits)
-    path = cfg["output"]["path"]
-    if a.test and not a.output:
-        path = "-"  # made-up mail: print it
-    if path == "-":
-        sys.stdout.write(text)
-        return "stdout"
-    out = config.expand(path.replace("{date}", f"{opts.end:%Y-%m-%d}"))
-    out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        f.write(text)
-    return out
+    """Write every output; returns where they went."""
+    written = []
+    for name, path in outputs(cfg, a):
+        try:
+            if name == "json":
+                text = render.to_json(cfg, msgs, opts, elapsed, task_error, waits)
+            else:
+                text = templates.render(cfg, name, msgs, opts, elapsed, task_error, waits)
+        except templates.TemplateError as e:
+            print(f"amanuense: template {e}; fix it and run `amanuense render`", file=sys.stderr)
+            continue
+        if path == "-":
+            sys.stdout.write(text)
+            written.append("stdout")
+            continue
+        out = config.expand(path.replace("{date}", f"{opts.end:%Y-%m-%d}").replace("{template}", Path(name).name.split(".")[0]))
+        out.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+        written.append(str(out))
+    return ", ".join(written) or "nothing written"
 
 
 def cmd_render(cfg, a):
@@ -268,6 +326,35 @@ def cmd_render(cfg, a):
     out = write_output(cfg, a, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"])
     if not a.quiet and out != "stdout":
         print(f"-> {out}")
+
+
+def cmd_template(cfg, a):
+    try:
+        if a.action == "list":
+            mine = templates.user_dir()
+            for name, path in templates.available().items():
+                where = "yours" if path.parent == mine else "shipped"
+                print(f"{name:10} {where:8} {templates.description(path)}")
+            print(f"{'json':10} {'built-in':8} Every field of every message, for other programs.")
+        elif a.action == "show":
+            sys.stdout.write(templates.find(a.name).read_text())
+        elif a.action == "copy":
+            src = templates.find(a.name)
+            dst = templates.user_dir() / (src.name if not a.new_name else a.new_name + "." + ".".join(src.name.split(".")[1:]))
+            if dst.exists() and not a.force:
+                sys.exit(f"amanuense: {dst} exists (use --force to overwrite)")
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_text(src.read_text())
+            if not (dst.parent / "_macros.j2").exists():
+                (dst.parent / "_macros.j2").write_text((templates.shipped_dir() / "_macros.j2").read_text())
+            print(f"wrote {dst}; use it with -t {dst.name.split('.')[0]} or output.template")
+        elif a.action == "preview":
+            msgs, waits = samples.results(cfg)
+            start, end = window.parse_window("24h")
+            sys.stdout.write(templates.render(cfg, a.name, msgs, Options(start=start, end=end), 60, None, waits))
+    except templates.TemplateError as e:
+        sys.exit(f"amanuense: {e}")
+    return 0
 
 
 def cmd_tag(cfg, a):
@@ -303,6 +390,11 @@ def cmd_check(cfg, a):
         print(f"{'ok  ' if good else 'FAIL'} {name}: {detail}")
 
     report("config", True, cfg["_path"])
+    try:
+        check_templates(cfg, a)
+        report("templates", True, ", ".join(f"{t} -> {p}" for t, p in outputs(cfg, a)))
+    except SystemExit as e:
+        report("templates", False, str(e))
     report("categories", True, f"{cfg['categories_file']}: {', '.join(cfg['categories'])} "
                                f"(fallback {cfg['fallback']})")
     try:
@@ -398,12 +490,14 @@ def main(argv=None):
         print(f"Edit the files in {d}" if written else f"{d} already has a config (use --force to overwrite)")
         return 0
     cfg = config.load(a.config, overrides(a),
-                      require_file=a.command not in ("config", "category") and not getattr(a, "test", False))
+                      require_file=a.command not in ("config", "category", "template") and not getattr(a, "test", False))
     if a.command == "config":
         print(json.dumps({k: v for k, v in cfg.items() if k != "categories_prompt"}, indent=2, ensure_ascii=False))
         return 0
     if a.command == "category":
         return cmd_category(cfg, a)
+    if a.command == "template":
+        return cmd_template(cfg, a)
     try:
         window.parse_window(cfg["window"]["default"])
     except ValueError as e:

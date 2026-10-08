@@ -1,0 +1,72 @@
+{# Long: every triaged email grouped by category, with summaries, plus to-dos, waiting for replies and skipped mail. #}
+{% import "_macros.j2" as x %}
+# Mail digest {{ window.end | date("%Y-%m-%d") }}
+
+Window {{ window.text }}{{ " plus unread mail outside it" if unread_included }}: {{ messages | length | plural("message") }} ({{ older_unread | length }} outside the window), {{ triaged | length }} triaged by {{ model }}, {{ skipped | length }} skipped by the skip rules. Took {{ minutes }} min.
+
+Generated locally; categories, priorities and to-dos are the model's guesses, check them.
+
+{% if tagging %}
+{{ "Would tag" if dry_run else "Tagged" }} the messages in the mailbox.
+
+{% endif %}
+{{ x.problems(problems, task_error) }}
+{% if expiring %}
+## Deleted soon
+
+These messages are in folders the server empties after a few days. Open or save them in time.
+
+{% for m in expiring %}
+- **{{ m.subject }}** — {{ m.sender }}, in {{ m.folder_label }}, deleted {% if m.days_left > 0 %}in about {{ m.days_left | plural("day") }}{% else %}any time now{% endif %} ({{ m.expires | date("%d %b") }}), uid {{ m.uid }}{% if m.triaged %} — {{ m.todo }}{% endif %}
+
+{% endfor %}
+
+{% endif %}
+## Proposed to-dos
+
+{% for m in todos %}
+{{ x.todo(m) }}{{ " · urgent" if m.priority == "high" }}
+{% else %}
+- none
+{% endfor %}
+
+{% if waits %}
+## Waiting for replies
+
+Mail you sent more than {{ waiting_after }} ago (looking back {{ waiting_lookback }}) that asked for something and got no answer yet.
+
+{% for s in waits %}
+- **{{ s.subject }}** — to {{ s.to }}, sent {{ s.days }} days ago ({{ s.date | date }}) · {{ s.category }}{{ x.task_note(s.task, true) }}
+  Waiting for {{ s.waiting_for }}.
+{% endfor %}
+
+{% endif %}
+{% for c in by_category %}
+## {{ c.name }} ({{ c["items"] | length }})
+
+{% for m in c["items"] %}
+{% set status = "handled" if m.handled else ("needs action" if m.needs_action else "fyi") ~ ", " ~ m.priority %}
+{% set notes = [] %}
+{% if m.older_unread %}{% set _ = notes.append("unread, older") %}{% endif %}
+{% if m.folder_label %}{% set _ = notes.append("in " ~ m.folder_label) %}{% endif %}
+{% if m.category_from_tag %}{% set _ = notes.append("category from existing tag") %}{% endif %}
+- **{{ m.subject }}** — {{ m.sender }}, {{ m.date | date("%a %d %b %H:%M") }}, uid {{ m.uid }} · *{{ status }}*{% for n in notes %} · {{ n }}{% endfor %}{% if m.attachments %} 📎 {{ m.attachments | join(", ") }}{% endif %}{{ "  " }}
+  {{ m.summary }}
+{% endfor %}
+
+{% endfor %}
+{% if errors %}
+## Not triaged (error)
+
+{% for m in errors %}
+- {{ m.subject }} — {{ m.sender }}, uid {{ m.uid }} ({{ m.error }})
+{% endfor %}
+
+{% endif %}
+{% if skipped %}
+## Skipped ({{ skipped | length }})
+
+{% for m in skipped %}
+- {{ m.subject }} — {{ m.sender }}
+{% endfor %}
+{% endif %}

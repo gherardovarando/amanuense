@@ -27,7 +27,8 @@ DEFAULTS = {
         "timeout": 600,
         "think": None,
     },
-    "output": {"path": "~/amanuense/{date}.md", "format": "markdown", "detail": "brief", "max_fyi": 10, "urgent_within": "3d"},
+    "output": {"template": "brief", "path": "~/amanuense/{date}.md", "max_fyi": 10, "urgent_within": "3d"},
+    "outputs": [],  # [[outputs]] template, path: more files from the same run
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
@@ -40,7 +41,9 @@ DEFAULTS = {
 # Settings that moved to the categories file.
 OBSOLETE = {("categories",): "categories are the `## name` sections of the categories file",
             ("tag", "keywords"): "set `keyword:` in the category's section of the categories file",
-            ("tag", "exclude"): "set `keyword: none` in the category's section of the categories file"}
+            ("tag", "exclude"): "set `keyword: none` in the category's section of the categories file",
+            ("output", "detail"): "use output.template (brief, long, tiny, ...; `amanuense template list`)",
+            ("output", "format"): "use output.template; template = \"json\" gives JSON"}
 
 
 def config_dir():
@@ -111,8 +114,11 @@ def load(path=None, overrides=None, require_file=True):
     for f in cfg["folders"]:
         if not isinstance(f, dict) or not f.get("name"):
             raise SystemExit("config: every [[folders]] entry needs a name")
-    if cfg["output"].get("detail") not in ("brief", "full"):
-        raise SystemExit(f"config: output.detail must be \"brief\" or \"full\", not {cfg['output'].get('detail')!r}")
+    if cfg["output"].get("format") == "json":  # older configs
+        cfg["output"]["template"] = "json"
+    for o in cfg["outputs"]:
+        if not isinstance(o, dict) or not o.get("template") or not o.get("path"):
+            raise SystemExit("config: every [[outputs]] entry needs a template and a path")
     for key in ("subject", "from"):
         try:
             re.compile(cfg["skip"][key])

@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "amanuense"
-version = "0.2.0"
+version = "0.3.0"
 description = "Private mail digest and tagging with a local language model"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["mcp>=1.0"]
+dependencies = ["mcp>=1.0", "jinja2>=3.1"]
 
 [project.optional-dependencies]
 test = ["pytest"]
@@ -17,4 +17,4 @@ test = ["pytest"]
 amanuense = "amanuense.cli:main"
 
 [tool.setuptools.package-data]
-amanuense = ["data/*"]
+amanuense = ["data/*", "data/templates/*"]

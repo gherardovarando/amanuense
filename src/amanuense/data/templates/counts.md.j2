@@ -1,0 +1,27 @@
+{# Counts: numbers, categories and dates only — no sender, subject or summary, so no mail text at all. #}
+{% import "_macros.j2" as x %}
+# Mail counts {{ window.end | date("%Y-%m-%d") }}
+
+- Window: {{ window.text }}
+- Messages: {{ messages | length }} ({{ triaged | length }} triaged, {{ skipped | length }} skipped, {{ handled | length }} already answered, {{ errors | length }} errors)
+- To-dos: {{ todos | length }}{% if todos %} — {{ x.counts(count(todos)) }}{% endif %}
+
+- Urgent: {{ urgent | length }}{% if urgent %} — {{ x.counts(count(urgent)) }}{% endif %}
+
+- Worth knowing: {{ fyi | length }}, low priority: {{ low | length }}
+- Waiting for replies: {{ waits | length }}
+- Deleted soon: {{ expiring | length }}{% if expiring %} (first on {{ expiring[0].expires | date("%d %b") }}){% endif %}
+
+{% set dated = todos | selectattr("deadline") | list %}
+{% if dated %}
+
+## Deadlines
+
+{% for m in dated | sort(attribute="deadline") %}
+- {{ m.deadline | date("%a %d %b") }} — {{ m.category }}{{ " (urgent)" if m.priority == "high" }}{{ x.task_note(m.task) }}
+{% endfor %}
+{% endif %}
+{% if problems or task_error %}
+
+{{ (problems | length) + (1 if task_error else 0) }} problem(s) during the run; see the full digest.
+{% endif %}
