@@ -1,0 +1,6 @@
+.venv/
+*.log
+__pycache__/
+# private: personal config and category examples
+config.toml
+categories.md
