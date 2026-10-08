@@ -28,6 +28,8 @@ def selection_args():
     g.add_argument("--folder", help="folder to read (default INBOX)")
     g.add_argument("--sent-folder", metavar="FOLDER", help="Sent folder, used to spot replies")
     g.add_argument("--no-skip", action="store_true", help="don't apply the skip rules")
+    g.add_argument("--extra-folders", action=argparse.BooleanOptionalAction, default=True,
+                   help="also read the [[folders]] of the config (default: on)")
 
     g = p.add_argument_group("model and mail server")
     g.add_argument("--model", metavar="NAME", help="model name, e.g. qwen3:4b-instruct")
@@ -141,7 +143,7 @@ def make_options(cfg, a, command):
     return Options(start=start, end=end, unread=w["unread"], max_unread=w["max_unread"],
                    max_messages=w["max_messages"], skip=cfg["skip"]["enabled"],
                    tag=command == "tag" or cfg["tag"]["enabled"], retag=getattr(a, "retag", False),
-                   dry_run=a.dry_run, triage_tagged=command != "tag")
+                   dry_run=a.dry_run, triage_tagged=command != "tag", folders=a.extra_folders)
 
 
 def logger(a):
@@ -156,6 +158,8 @@ def cmd_digest(cfg, a):
     opts = make_options(cfg, a, "digest")
     t0 = time.time()
     msgs = asyncio.run(run(cfg, mailbox(cfg, a, write=opts.tag and not opts.dry_run), opts, logger(a)))
+    for p in opts.problems:
+        print(f"amanuense: warning: {p}", file=sys.stderr)
     task_error = None
     if tasks.enabled(cfg):
         try:  # made-up mail never becomes real tasks
@@ -189,6 +193,8 @@ def cmd_tag(cfg, a):
     t0 = time.time()
     box = mailbox(cfg, a, write=not a.dry_run)
     msgs = asyncio.run(run(cfg, box, opts, logger(a)))
+    for p in opts.problems:
+        print(f"amanuense: warning: {p}", file=sys.stderr)
     if not a.test and not a.dry_run:
         window.write_last_run("tag", opts.end)
     already = sum(1 for m in msgs if m.get("existing") and "ai" not in m)
@@ -200,7 +206,8 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
         return
     st = render.stats(msgs)
     cats = ", ".join(f"{k} {v}" for k, v in st["categories"].items())
-    print(f"{st['messages']} messages ({st['outside_window']} unread outside the window), {st['triaged']} triaged"
+    print(f"{st['messages']} messages ({st['outside_window']} unread outside the window, "
+          f"{st['expiring']} in expiring folders), {st['triaged']} triaged"
           f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
           f"{st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)
@@ -252,13 +259,24 @@ def cmd_check(cfg, a):
 
     if a.test:
         report("mail", True, "skipped (--test)")
+        for f in cfg["folders"]:
+            report(f"folder {f['name']}", True, "skipped (--test)")
     else:
         async def probe():
+            results = {}
             async with Mailbox(cfg, verbose=a.verbose) as box:
-                return await box.search(cfg["mail"]["inbox"], since=f"{datetime.now():%Y-%m-%d}", limit=1)
+                await box.search(cfg["mail"]["inbox"], since=f"{datetime.now():%Y-%m-%d}", limit=1)
+                for f in cfg["folders"]:
+                    try:
+                        results[f["name"]] = (True, len(await box.search(f["name"], limit=500)))
+                    except Exception as e:
+                        results[f["name"]] = (False, f"{type(e).__name__}: {str(e)[:150]}")
+            return results
         try:
-            asyncio.run(probe())
+            results = asyncio.run(probe())
             report("mail", True, f"account {cfg['mail']['account'] or '(default)'}, folder {cfg['mail']['inbox']}")
+            for name, (good, info) in results.items():
+                report(f"folder {name}", good, f"{info} messages" if good else info)
         except Exception as e:
             report("mail", False, f"{type(e).__name__}: {str(e)[:200]}")
     return 0 if ok else 1

@@ -1,12 +1,17 @@
 """Digest output: Markdown for reading, JSON for other tools."""
 import json
 from collections import Counter
+from datetime import datetime
 
 from .triage import parse_date, short_from
 from .window import describe
 
-_FIELDS = ("uid", "from", "subject", "date", "handled", "outside_window", "skip", "error", "existing", "tag_actions",
-           "task")
+_FIELDS = ("uid", "folder", "from", "subject", "date", "expires", "handled", "outside_window", "skip", "error",
+           "existing", "tag_actions", "task")
+
+
+def days_left(m):
+    return (datetime.fromisoformat(m["expires"]) - datetime.now().astimezone()).days
 
 
 def stats(msgs):
@@ -21,6 +26,7 @@ def stats(msgs):
         "tagged": sum(1 for m in done if any(a == "add" for a, _ in m.get("tag_actions") or [])),
         "tasks": sum(1 for m in done if m.get("task") in ("added", "would add")),
         "categories": dict(Counter(m["ai"]["category"] for m in done)),
+        "expiring": sum(1 for m in msgs if m.get("expires")),
     }
 
 
@@ -31,7 +37,8 @@ def to_json(cfg, msgs, opts, elapsed, task_error=None):
         r.update(m.get("ai") or {})
         out.append(r)
     return json.dumps({"window": [opts.start.isoformat(), opts.end.isoformat()], "model": cfg["model"]["name"],
-                       "stats": stats(msgs), "elapsed_s": round(elapsed), "task_error": task_error, "messages": out},
+                       "stats": stats(msgs), "elapsed_s": round(elapsed), "task_error": task_error,
+                       "problems": opts.problems, "messages": out},
                       ensure_ascii=False, indent=1, default=str) + "\n"
 
 
@@ -52,6 +59,20 @@ def to_markdown(cfg, msgs, opts, elapsed, task_error=None):
         lines += [f"{verb} {st['tagged']} messages in the mailbox.", ""]
     if task_error:
         lines += [f"Taskwarrior failed, no tasks were added: {task_error}", ""]
+    for p in opts.problems:
+        lines += [f"**Problem:** {p}", ""]
+
+    expiring = sorted((m for m in msgs if m.get("expires")), key=lambda m: m["expires"])
+    if expiring:
+        lines += ["## Deleted soon", "",
+                  "These messages are in folders the server empties after a few days. Open or save them in time.", ""]
+        for m in expiring:
+            d = days_left(m)
+            when = f"in about {d} day{'' if d == 1 else 's'}" if d > 0 else "any time now"
+            what = f" — {m['ai']['todo'] or m['ai']['summary']}" if "ai" in m else ""
+            lines.append(f"- **{m['subject'] or '(no subject)'}** — {short_from(m['from'])}, in {m['folder_label']}, "
+                         f"deleted {when} ({datetime.fromisoformat(m['expires']):%d %b}), uid {m['uid']}{what}")
+        lines.append("")
 
     todos = [m for m in done if m["ai"]["needs_action"] and not m["handled"]]
     todos.sort(key=lambda m: (m["ai"]["deadline"] or "9999", cats.index(m["ai"]["category"])))
@@ -75,6 +96,8 @@ def to_markdown(cfg, msgs, opts, elapsed, task_error=None):
             notes = []
             if m.get("outside_window"):
                 notes.append("unread, older")
+            if m.get("folder_label"):
+                notes.append(f"in {m['folder_label']}")
             if m["ai"].get("category_from_tag"):
                 notes.append("category from existing tag")
             note = "".join(f" · {n}" for n in notes)

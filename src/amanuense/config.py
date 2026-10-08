@@ -31,6 +31,7 @@ DEFAULTS = {
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
+    "folders": [],  # [[folders]] name, label, expires_days, all, max_messages
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "rc": {}},
 }
 
@@ -96,6 +97,9 @@ def load(path=None, overrides=None, require_file=True):
     cfg["fallback"] = c.fallback
     cfg["keywords"] = {x.name: x.keyword for x in c.items}
     cfg["categories_prompt"] = c.prompt
+    for f in cfg["folders"]:
+        if not isinstance(f, dict) or not f.get("name"):
+            raise SystemExit("config: every [[folders]] entry needs a name")
     for key in ("subject", "from"):
         try:
             re.compile(cfg["skip"][key])

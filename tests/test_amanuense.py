@@ -243,3 +243,46 @@ def test_tasks_disabled(monkeypatch):
     assert not tasks.enabled(cfg)
     cfg = config.load(None, {"taskwarrior": {"enabled": False}}, require_file=False)
     assert not tasks.enabled(cfg)
+
+
+FOLDERS = {"folders": [{"name": "Quarantine", "label": "held mail", "expires_days": 14}]}
+
+
+def test_extra_folders(monkeypatch):
+    cfg = config.load(None, FOLDERS, require_file=False)
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    held = next(m for m in msgs if m["uid"] == 7)
+    assert held["folder"] == "Quarantine" and "ai" in held      # read and triaged, though 4 days old
+    days = render.days_left(held)
+    assert 8 <= days <= 10
+    opts = triage.Options(*window.parse_window("24h"))
+    md = render.to_markdown(cfg, msgs, opts, 1)
+    assert "## Deleted soon" in md and "in held mail" in md
+
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg), folders=False)
+    assert 7 not in {m["uid"] for m in msgs}
+
+
+def test_missing_folder_is_reported(monkeypatch):
+    cfg = config.load(None, {"folders": [{"name": "Nope"}]}, require_file=False)
+    monkeypatch.setattr(model, "classify", fake_classify)
+    opts = triage.Options(*window.parse_window("24h"))
+    box = FakeMailbox(cfg)
+    box.extra = {}  # the folder doesn't exist on the server
+    msgs = asyncio.run(triage.run(cfg, box, opts))
+    assert len(msgs) == 6 and "could not read folder Nope" in opts.problems[0]  # the run went on
+    assert "**Problem:** could not read folder Nope" in render.to_markdown(cfg, msgs, opts, 1)
+
+
+def test_tasks_for_expiring_mail(monkeypatch, taskdb):
+    cfg = config.load(None, {**FOLDERS, "mail": {"account": "work"}}, require_file=False)
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    taskdb.add_tasks(cfg, msgs)
+    t = next(t for t in __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+             if "folder Quarantine" in t["annotations"][0]["description"])
+    held = next(m for m in msgs if m["uid"] == 7)
+    assert t["due"] == taskdb._utc(datetime.fromisoformat(held["expires"]))      # due when it gets deleted
+    assert "IMAP uid 7, account work, folder Quarantine," in t["annotations"][0]["description"]
+    ids, uids = taskdb.existing_refs(cfg)
+    assert ("work", "Quarantine", 7) in uids and ("work", "INBOX", 1) in uids
+    assert taskdb.add_tasks(cfg, run_fake(monkeypatch, cfg, FakeMailbox(cfg))) == 0

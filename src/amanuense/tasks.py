@@ -19,7 +19,7 @@ import subprocess
 import uuid
 from datetime import datetime, timezone
 
-OLD_REF = re.compile(r"IMAP uid (\d+), account ([^,\s]+)")
+OLD_REF = re.compile(r"IMAP uid (\d+), account ([^,\s]+)(?:, folder ([^,]+))?")
 MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
 
 
@@ -56,13 +56,15 @@ def _task(cfg, *args, stdin=None, read_only=False):
 
 
 def existing_refs(cfg):
-    """Message-IDs and (account, uid) pairs that already have a task, in any status."""
+    """Message-IDs and (account, folder, uid) triples that already have a task, in any status.
+    An annotation without a folder refers to the inbox."""
     ids, uids = set(), set()
+    inbox = cfg["mail"]["inbox"]
     for t in json.loads(_task(cfg, "export", read_only=True) or "[]"):
         for a in t.get("annotations") or []:
             text = a.get("description", "")
             ids.update(MSGID.findall(text))
-            uids.update((acc, int(uid)) for uid, acc in OLD_REF.findall(text))
+            uids.update((acc, folder or inbox, int(uid)) for uid, acc, folder in OLD_REF.findall(text))
     return ids, uids
 
 
@@ -78,7 +80,9 @@ def build(cfg, m, now=None):
     tags = list(tw["tags"])
     if cfg["keywords"].get(ai["category"]):  # categories that are never tagged get no category tag
         tags.insert(0, ai["category"])
-    note = (f"{now:%Y-%m-%d} IMAP uid {m['uid']}, account {account}, subject: {m.get('subject') or '(no subject)'}"
+    where = "" if m.get("folder", cfg["mail"]["inbox"]) == cfg["mail"]["inbox"] else f", folder {m['folder']}"
+    note = (f"{now:%Y-%m-%d} IMAP uid {m['uid']}, account {account}{where}, "
+            f"subject: {m.get('subject') or '(no subject)'}"
             f" (amanuense, message-id {m.get('messageId') or 'unknown'})")
     t = {
         "uuid": str(uuid.uuid4()),
@@ -88,9 +92,13 @@ def build(cfg, m, now=None):
         "tags": tags,
         "annotations": [{"entry": _utc(now), "description": note}],
     }
+    dues = []
     if ai.get("deadline"):
-        due = datetime.strptime(ai["deadline"], "%Y-%m-%d").replace(tzinfo=now.tzinfo)  # local midnight
-        t["due"] = _utc(due)
+        dues.append(datetime.strptime(ai["deadline"], "%Y-%m-%d").replace(tzinfo=now.tzinfo))  # local midnight
+    if m.get("expires"):  # the server deletes the message then: act before
+        dues.append(datetime.fromisoformat(m["expires"]).astimezone(now.tzinfo))
+    if dues:
+        t["due"] = _utc(min(dues))
     if tw.get("project"):
         t["project"] = tw["project"]
     return t
@@ -105,7 +113,7 @@ def add_tasks(cfg, msgs, dry_run=False):
     account = cfg["mail"]["account"] or "default"
     new = []
     for m in todo:
-        if m.get("messageId") in ids or (account, m["uid"]) in uids:
+        if m.get("messageId") in ids or (account, m.get("folder", cfg["mail"]["inbox"]), m["uid"]) in uids:
             m["task"] = "exists"
             continue
         m["task"] = "would add" if dry_run else "added"

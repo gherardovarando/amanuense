@@ -32,6 +32,13 @@ class FakeMailbox:
                  24 * 9, now),
         ]
         self.unread = {6}
+        # A message in the first extra folder of the config, if any (e.g. a quarantine or oversized-mail folder).
+        self.extra = {}
+        if cfg.get("folders"):
+            self.extra[cfg["folders"][0]["name"]] = [
+                _msg(7, "Data Office <data@example.org>", "Dataset for the project (large attachment)",
+                     "Hi, here is the full dataset we discussed, please download it and confirm it opens. Thanks",
+                     24 * 4, now, attachments=["dataset.zip"])]
         self.sent = [{"to": ["Anna Rossi <anna@example.org>"], "date": now.isoformat(), "messageId": "<s1@test>"}]
 
     async def __aenter__(self):
@@ -41,13 +48,20 @@ class FakeMailbox:
         pass
 
     async def search(self, folder, since=None, before=None, seen=None, limit=50, **_):
-        msgs = self.sent if folder == self.cfg["mail"]["sent"] else self.inbox
+        if folder in self.extra:
+            msgs = self.extra[folder]
+        elif folder == self.cfg["mail"]["sent"]:
+            msgs = self.sent
+        elif folder == self.cfg["mail"]["inbox"]:
+            msgs = self.inbox
+        else:
+            raise RuntimeError(f"Mailbox doesn't exist: {folder}")
         if seen is False:
             msgs = [m for m in msgs if m.get("uid") in self.unread]
         return [{k: v for k, v in m.items() if k not in ("body", "attachments")} for m in msgs][:limit]
 
     async def get(self, folder, uid, body_chars):
-        m = next(m for m in self.inbox if m["uid"] == uid)
+        m = next(m for m in self.extra.get(folder, self.inbox) if m["uid"] == uid)
         return {"body": m["body"][:body_chars], "attachments": m["attachments"]}
 
     async def add_keyword(self, folder, uid, keyword):

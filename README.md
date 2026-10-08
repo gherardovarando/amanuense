@@ -14,6 +14,7 @@ A private secretary for your inbox. A small language model running on your own m
   The output is a Markdown or JSON file. It starts with the proposed to-dos sorted by deadline, then lists the emails grouped by category. Emails you already answered are marked as handled.
 
   If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
+- **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
@@ -71,6 +72,7 @@ amanuense digest -w last                 # since the previous successful digest
 amanuense digest -w 2026-10-01..2026-10-05 --format json -o week.json
 amanuense digest --tag                   # digest, and tag the messages in the mailbox
 amanuense digest --no-tasks              # don't add Taskwarrior tasks this time
+amanuense digest --no-extra-folders      # inbox only
 amanuense digest --dry-run               # show "task (dry run)" instead of adding tasks or tags
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
@@ -142,6 +144,23 @@ Newsletters, broadcasts, mailing lists, notifications.
 - **Everything else** goes into the model's instructions: descriptions, examples and notes, minus the `keyword:`/`fallback:` lines and `<!-- comments -->`.
 
 Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
+
+## Extra folders
+
+```toml
+[[folders]]
+name = "Quarantine"
+label = "held mail"     # shown in the digest
+expires_days = 14       # the server deletes mail here after 14 days
+all = true              # read the whole folder whatever the window (default)
+max_messages = 100
+```
+
+- **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
+- **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
+- **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
+- **Tasks:** their due date is the earlier of the email's deadline and the deletion date.
+- **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
 
 ## Taskwarrior
 

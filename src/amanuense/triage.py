@@ -1,7 +1,7 @@
 """Select the messages of a run, ask the model about each one, and optionally tag them."""
 import asyncio
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from . import config, model
@@ -19,6 +19,8 @@ class Options:
     retag: bool = False
     dry_run: bool = False
     triage_tagged: bool = True  # False for the tag command: mail already tagged is left alone
+    folders: bool = True        # also read the extra folders of the config
+    problems: list = field(default_factory=list)  # filled during the run: folders that could not be read
 
 
 def addr(s):
@@ -42,19 +44,50 @@ def is_skipped(cfg, m):
                 or re.search(sk["from"], m.get("from") or "", re.I))
 
 
-async def collect(cfg, box, opts):
-    """Messages in the window, plus unread ones outside it; and the Sent mail needed to spot replies."""
-    inbox = cfg["mail"]["inbox"]
+async def in_window(box, folder, opts):
     # IMAP SINCE/BEFORE are date-only: search a day wider on each side, then filter exactly.
-    found = await box.search(inbox, since=f"{opts.start - timedelta(days=1):%Y-%m-%d}",
+    found = await box.search(folder, since=f"{opts.start - timedelta(days=1):%Y-%m-%d}",
                              before=f"{opts.end + timedelta(days=1):%Y-%m-%d}", limit=5000)
-    msgs = {m["uid"]: m for m in found if opts.start <= parse_date(m["date"]) < opts.end}
+    return [m for m in found if opts.start <= parse_date(m["date"]) < opts.end]
+
+
+async def extra_folders(cfg, box, opts):
+    """Messages from the [[folders]] of the config. A folder with all = true (the default) is read
+    whole, whatever the window: it's meant for holding areas such as quarantine or oversized mail."""
+    out = []
+    for f in cfg["folders"] if opts.folders else []:
+        name = f["name"]
+        try:
+            found = (await box.search(name, limit=int(f.get("max_messages", 100))) if f.get("all", True)
+                     else await in_window(box, name, opts))
+        except Exception as e:  # e.g. the folder doesn't exist: report it, keep going
+            opts.problems.append(f"could not read folder {name}: {str(e)[:150]}")
+            continue
+        for m in found:
+            m["folder"] = name
+            m["folder_label"] = f.get("label") or name
+            if f.get("expires_days"):
+                m["expires"] = (parse_date(m["date"]) + timedelta(days=int(f["expires_days"]))).isoformat()
+        out += found
+    return out
+
+
+async def collect(cfg, box, opts):
+    """Messages in the window, plus unread ones outside it, plus the extra folders;
+    and the Sent mail needed to spot replies."""
+    inbox = cfg["mail"]["inbox"]
+    msgs = {m["uid"]: m for m in await in_window(box, inbox, opts)}
     if opts.unread:
         for m in await box.search(inbox, seen=False, limit=opts.max_unread):
             if m["uid"] not in msgs:
                 m["outside_window"] = True
                 msgs[m["uid"]] = m
-    msgs = sorted(msgs.values(), key=lambda m: parse_date(m["date"]), reverse=True)[:opts.max_messages]
+    for m in msgs.values():
+        m["folder"] = inbox
+    extra = await extra_folders(cfg, box, opts)
+    # Extra folders are capped by their own max_messages and always kept: they may be about to expire.
+    msgs = extra + sorted(msgs.values(), key=lambda m: parse_date(m["date"]), reverse=True)[
+        :max(opts.max_messages - len(extra), 0)]
     oldest = min([parse_date(m["date"]) for m in msgs] + [opts.start])
     sent = await box.search(cfg["mail"]["sent"], since=f"{oldest - timedelta(days=1):%Y-%m-%d}", limit=5000)
     return msgs, sent
@@ -93,7 +126,6 @@ async def run(cfg, box, opts, log=lambda s: None):
     mark_handled(msgs, sent)
     known = config.keyword_categories(cfg)
     system = model.system_prompt(cfg)
-    inbox = cfg["mail"]["inbox"]
     for i, m in enumerate(msgs, 1):
         m["existing"] = [known[k] for k in m.get("customKeywords") or [] if k in known]
         m["skip"] = opts.skip and is_skipped(cfg, m)
@@ -101,7 +133,7 @@ async def run(cfg, box, opts, log=lambda s: None):
             continue
         log(f"triaging {i}/{len(msgs)}")
         try:
-            m.update(await box.get(inbox, m["uid"], cfg["model"]["body_chars"]))
+            m.update(await box.get(m["folder"], m["uid"], cfg["model"]["body_chars"]))
             m["ai"] = await asyncio.to_thread(model.classify, cfg, system, m)
         except Exception as e:  # keep going; the message is listed as not triaged
             m["error"] = type(e).__name__
@@ -116,5 +148,5 @@ async def run(cfg, box, opts, log=lambda s: None):
             m["tag_actions"] = tag_actions(cfg, m, opts.retag)
             if not opts.dry_run:
                 for action, kw in m["tag_actions"]:
-                    await (box.add_keyword if action == "add" else box.remove_keyword)(inbox, m["uid"], kw)
+                    await (box.add_keyword if action == "add" else box.remove_keyword)(m["folder"], m["uid"], kw)
     return msgs

@@ -23,6 +23,16 @@ account = ""           # account name in the IMAP MCP server; empty = its defaul
 inbox = "INBOX"
 sent = "Sent"          # used to spot emails you already answered
 
+# Extra folders to read besides the inbox, e.g. a quarantine or oversized-mail folder that
+# the server empties after some days. Repeat the [[folders]] block for each folder.
+# [[folders]]
+# name = "Quarantine"
+# label = "held mail"     # shown in the digest
+# expires_days = 14       # the server deletes mail here after N days: the digest warns,
+#                         # and tasks are due before that
+# all = true              # read the whole folder whatever the window (default); false = window only
+# max_messages = 100
+
 [mcp]
 # How to start the IMAP MCP server (https://github.com/nikolausm/imap-mcp-server).
 # amanuense only enables the tools a run needs: search and read, plus the keyword
