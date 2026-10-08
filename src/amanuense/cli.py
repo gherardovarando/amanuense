@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, categories, config, render, tasks, window
+from . import __version__, categories, config, render, tasks, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -61,6 +61,14 @@ def build_parser():
     d.add_argument("--tag", action=argparse.BooleanOptionalAction, default=None,
                    help="also tag the messages in the mailbox (default: tag.enabled in the config)")
     d.add_argument("--todo-keyword", metavar="KW", help="with --tag, also set this keyword on to-dos (e.g. $label4)")
+    d.add_argument("--waiting", action=argparse.BooleanOptionalAction, default=None,
+                   help="list sent mail still waiting for a reply (default: waiting.enabled in the config)")
+    d.add_argument("--waiting-after", metavar="DUR",
+                   help="waiting = no reply after this long: 36h, 7d, 2w, or a number of days (default 7d)")
+    d.add_argument("--waiting-lookback", metavar="DUR",
+                   help="how far back to look at sent mail, same format (default 30d)")
+    d.add_argument("--waiting-tasks", action=argparse.BooleanOptionalAction, default=None,
+                   help="also add a follow-up task for each (default: waiting.tasks in the config)")
     d.add_argument("--tasks", action=argparse.BooleanOptionalAction, default=None,
                    help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
                         "'auto' = when the task command is installed)")
@@ -133,6 +141,10 @@ def overrides(a):
     put("tag.enabled", g("tag"))
     put("tag.todo_keyword", g("todo_keyword"))
     put("taskwarrior.enabled", g("tasks"))
+    put("waiting.enabled", g("waiting"))
+    put("waiting.after", g("waiting_after"))
+    put("waiting.lookback", g("waiting_lookback"))
+    put("waiting.tasks", g("waiting_tasks"))
     return o
 
 
@@ -154,22 +166,39 @@ def mailbox(cfg, a, write):
     return FakeMailbox(cfg) if a.test else Mailbox(cfg, write=write, verbose=a.verbose)
 
 
+async def session(cfg, a, opts, write, followups=False):
+    """One mailbox session: triage, then (for digest) the sent mail waiting for replies."""
+    log = logger(a)
+    async with mailbox(cfg, a, write=write) as box:
+        msgs = await run(cfg, box, opts, log)
+        waits = []
+        if followups:
+            try:
+                waits = await waiting.find(cfg, box, log)
+            except Exception as e:  # keep the digest even if this part fails
+                opts.problems.append(f"could not check sent mail for missing replies: {type(e).__name__}: {str(e)[:150]}")
+        return msgs, waits
+
+
 def cmd_digest(cfg, a):
     opts = make_options(cfg, a, "digest")
     t0 = time.time()
-    msgs = asyncio.run(run(cfg, mailbox(cfg, a, write=opts.tag and not opts.dry_run), opts, logger(a)))
+    msgs, waits = asyncio.run(session(cfg, a, opts, write=opts.tag and not opts.dry_run,
+                                      followups=cfg["waiting"]["enabled"]))
     for p in opts.problems:
         print(f"amanuense: warning: {p}", file=sys.stderr)
     task_error = None
     if tasks.enabled(cfg):
         try:  # made-up mail never becomes real tasks
             tasks.add_tasks(cfg, msgs, dry_run=a.dry_run or a.test)
+            if cfg["waiting"]["tasks"]:
+                tasks.add_followups(cfg, waits, dry_run=a.dry_run or a.test)
         except tasks.TaskError as e:
             task_error = str(e)
             print(f"amanuense: warning: {e}", file=sys.stderr)
     elapsed = time.time() - t0
     fmt = cfg["output"]["format"]
-    text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed, task_error)
+    text = (render.to_json if fmt == "json" else render.to_markdown)(cfg, msgs, opts, elapsed, task_error, waits)
 
     path = cfg["output"]["path"]
     if a.test and not a.output:
@@ -185,14 +214,13 @@ def cmd_digest(cfg, a):
             f.write(text)
     if not a.test:
         window.write_last_run("digest", opts.end)
-    summary(a, msgs, elapsed, f"-> {out}", file=sys.stderr if path == "-" else sys.stdout)
+    summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}", file=sys.stderr if path == "-" else sys.stdout)
 
 
 def cmd_tag(cfg, a):
     opts = make_options(cfg, a, "tag")
     t0 = time.time()
-    box = mailbox(cfg, a, write=not a.dry_run)
-    msgs = asyncio.run(run(cfg, box, opts, logger(a)))
+    msgs, _ = asyncio.run(session(cfg, a, opts, write=not a.dry_run))
     for p in opts.problems:
         print(f"amanuense: warning: {p}", file=sys.stderr)
     if not a.test and not a.dry_run:

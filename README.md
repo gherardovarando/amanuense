@@ -14,6 +14,7 @@ A private secretary for your inbox. A small language model running on your own m
   The output is a Markdown or JSON file. It starts with the proposed to-dos sorted by deadline, then lists the emails grouped by category. Emails you already answered are marked as handled.
 
   If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
+- **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense check`** tests the configuration, the model server and the mail server.
@@ -73,6 +74,9 @@ amanuense digest -w 2026-10-01..2026-10-05 --format json -o week.json
 amanuense digest --tag                   # digest, and tag the messages in the mailbox
 amanuense digest --no-tasks              # don't add Taskwarrior tasks this time
 amanuense digest --no-extra-folders      # inbox only
+amanuense digest --waiting-after 3d      # flag sent mail with no reply after 3 days
+amanuense digest --waiting-lookback 2w   # only look at what you sent in the last two weeks
+amanuense digest --waiting-tasks         # and add a follow-up task for each
 amanuense digest --dry-run               # show "task (dry run)" instead of adding tasks or tags
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
@@ -161,6 +165,18 @@ max_messages = 100
 - **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
 - **Tasks:** their due date is the earlier of the email's deadline and the deletion date.
 - **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
+
+## Waiting for replies
+
+`digest` also lists mail you sent that is still waiting for an answer:
+
+1. It reads your Sent folder for the last `waiting.lookback` (default `30d`). Messages are grouped into conversations by subject, without Re:/Fwd:, and recipients. Only the latest message of each conversation counts, so a reminder you sent restarts the clock.
+2. A conversation is waiting when that latest message is older than `waiting.after` (default `7d`), and nobody it went to has written to you since. Replies are looked for in every folder except Trash, Spam and Drafts, so filed replies count. A message that replies to yours (In-Reply-To) counts too.
+3. The local model reads each of those messages and decides whether it asked for something, and what you're waiting for. Thank-you notes and FYIs drop out.
+
+With `waiting.tasks = true` (or `--waiting-tasks`), each one also becomes a Taskwarrior task: "Follow up: …", with the category, `email` and `followup` tags. The no-duplicates rule applies as for the other tasks.
+
+Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config or with `--waiting-after` and `--waiting-lookback`. These messages are checked on every run while they are within the lookback, so each costs a model call per run; `waiting.max_messages` caps that.
 
 ## Taskwarrior
 

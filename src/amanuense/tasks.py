@@ -73,13 +73,30 @@ def _utc(d):
 
 
 def build(cfg, m, now=None):
+    """Task for an email that needs action."""
+    ai = m["ai"]
+    dues = []
+    if ai.get("deadline"):
+        dues.append(datetime.strptime(ai["deadline"], "%Y-%m-%d"))  # local midnight
+    if m.get("expires"):  # the server deletes the message then: act before
+        dues.append(datetime.fromisoformat(m["expires"]))
+    return _make(cfg, m, ai["todo"] or ai["summary"] or "Answer email", ai["category"], dues=dues, now=now)
+
+
+def build_followup(cfg, s, now=None):
+    """Task for a sent email still waiting for a reply."""
+    w = s["waiting"]
+    return _make(cfg, s, f"Follow up: {w['waiting_for'] or s.get('subject') or 'no reply yet'}", w["category"],
+                 extra_tags=[cfg["waiting"]["task_tag"]], now=now)
+
+
+def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None):
     now = now or datetime.now().astimezone()
     tw = cfg["taskwarrior"]
-    ai = m["ai"]
     account = cfg["mail"]["account"] or "default"
-    tags = list(tw["tags"])
-    if cfg["keywords"].get(ai["category"]):  # categories that are never tagged get no category tag
-        tags.insert(0, ai["category"])
+    tags = list(tw["tags"]) + [t for t in extra_tags if t]
+    if cfg["keywords"].get(category):  # categories that are never tagged get no category tag
+        tags.insert(0, category)
     where = "" if m.get("folder", cfg["mail"]["inbox"]) == cfg["mail"]["inbox"] else f", folder {m['folder']}"
     note = (f"{now:%Y-%m-%d} IMAP uid {m['uid']}, account {account}{where}, "
             f"subject: {m.get('subject') or '(no subject)'}"
@@ -88,15 +105,11 @@ def build(cfg, m, now=None):
         "uuid": str(uuid.uuid4()),
         "status": "pending",
         "entry": _utc(now),
-        "description": " ".join((ai["todo"] or ai["summary"] or "Answer email").split())[:200],
+        "description": " ".join(description.split())[:200],
         "tags": tags,
         "annotations": [{"entry": _utc(now), "description": note}],
     }
-    dues = []
-    if ai.get("deadline"):
-        dues.append(datetime.strptime(ai["deadline"], "%Y-%m-%d").replace(tzinfo=now.tzinfo))  # local midnight
-    if m.get("expires"):  # the server deletes the message then: act before
-        dues.append(datetime.fromisoformat(m["expires"]).astimezone(now.tzinfo))
+    dues = [d.replace(tzinfo=now.tzinfo) if d.tzinfo is None else d.astimezone(now.tzinfo) for d in dues]
     if dues:
         t["due"] = _utc(min(dues))
     if tw.get("project"):
@@ -107,6 +120,15 @@ def build(cfg, m, now=None):
 def add_tasks(cfg, msgs, dry_run=False):
     """Create a task for each open to-do that doesn't have one yet. Sets m["task"] on those messages."""
     todo = [m for m in msgs if "ai" in m and m["ai"]["needs_action"] and not m["handled"]]
+    return _add(cfg, todo, build, dry_run)
+
+
+def add_followups(cfg, waits, dry_run=False):
+    """Create a follow-up task for each sent email still waiting for a reply."""
+    return _add(cfg, [s for s in waits if s.get("waiting", {}).get("expects_reply")], build_followup, dry_run)
+
+
+def _add(cfg, todo, make, dry_run):
     if not todo:
         return 0
     ids, uids = existing_refs(cfg)
@@ -117,7 +139,7 @@ def add_tasks(cfg, msgs, dry_run=False):
             m["task"] = "exists"
             continue
         m["task"] = "would add" if dry_run else "added"
-        new.append(build(cfg, m))
+        new.append(make(cfg, m))
     if new and not dry_run:
         _task(cfg, "import", "-", stdin=json.dumps(new))
     return len(new)

@@ -56,6 +56,10 @@ class Mailbox:
     async def search(self, folder, **criteria):
         return (await self._call("imap_search_emails", folder=folder, **criteria))["messages"]
 
+    async def search_all(self, **criteria):
+        """Search every folder except Trash, Spam and Drafts; each message gets a "folder" field."""
+        return (await self._call("imap_search_emails", searchAllFolders=True, **criteria))["messages"]
+
     async def get(self, folder, uid, body_chars):
         e = (await self._call("imap_get_email", folder=folder, uid=uid, bodyFormat="text",
                               maxContentLength=body_chars, includeAttachmentText=False))["email"]

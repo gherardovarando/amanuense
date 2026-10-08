@@ -8,7 +8,7 @@ import tomllib
 from importlib import resources
 from pathlib import Path
 
-from . import categories
+from . import categories, window
 
 DEFAULTS = {
     "categories_file": "categories.md",
@@ -31,6 +31,8 @@ DEFAULTS = {
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
+    "waiting": {"enabled": True, "after": "7d", "lookback": "30d", "max_messages": 50,
+                "tasks": False, "task_tag": "followup"},
     "folders": [],  # [[folders]] name, label, expires_days, all, max_messages
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "rc": {}},
 }
@@ -97,6 +99,11 @@ def load(path=None, overrides=None, require_file=True):
     cfg["fallback"] = c.fallback
     cfg["keywords"] = {x.name: x.keyword for x in c.items}
     cfg["categories_prompt"] = c.prompt
+    for key in ("after", "lookback"):
+        try:
+            window.parse_duration(cfg["waiting"][key])
+        except ValueError as e:
+            raise SystemExit(f"config: waiting.{key}: {e}") from None
     for f in cfg["folders"]:
         if not isinstance(f, dict) or not f.get("name"):
             raise SystemExit("config: every [[folders]] entry needs a name")

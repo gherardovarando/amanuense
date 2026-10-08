@@ -63,6 +63,16 @@ enabled = true
 subject = '\[(BULK|SPAM\?)\]|newsletter'
 from = 'no-?reply|newsletter|mailer-daemon|notifications?@'
 
+[waiting]
+# Sent mail that asked for something and got no reply: listed under "Waiting for replies".
+enabled = true         # --waiting / --no-waiting
+# Durations: 36h, 7d, 2w, or a plain number of days.
+after = "7d"           # waiting = no reply after this long (--waiting-after)
+lookback = "30d"       # how far back to look at sent mail (--waiting-lookback)
+max_messages = 50      # at most this many go to the model per run
+tasks = false          # also add a follow-up task (--waiting-tasks)
+task_tag = "followup"  # extra tag on those tasks
+
 [taskwarrior]
 # digest adds a task for each new to-do that has no task yet (checked against annotations,
 # in any status, so completed or deleted tasks are never re-created).

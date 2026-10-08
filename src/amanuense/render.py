@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime
 
 from .triage import parse_date, short_from
-from .window import describe
+from .window import describe, describe_duration
 
 _FIELDS = ("uid", "folder", "from", "subject", "date", "expires", "handled", "outside_window", "skip", "error",
            "existing", "tag_actions", "task")
@@ -30,7 +30,7 @@ def stats(msgs):
     }
 
 
-def to_json(cfg, msgs, opts, elapsed, task_error=None):
+def to_json(cfg, msgs, opts, elapsed, task_error=None, waits=()):
     out = []
     for m in msgs:
         r = {k: m.get(k) for k in _FIELDS if k in m}
@@ -38,11 +38,13 @@ def to_json(cfg, msgs, opts, elapsed, task_error=None):
         out.append(r)
     return json.dumps({"window": [opts.start.isoformat(), opts.end.isoformat()], "model": cfg["model"]["name"],
                        "stats": stats(msgs), "elapsed_s": round(elapsed), "task_error": task_error,
-                       "problems": opts.problems, "messages": out},
+                       "problems": opts.problems, "messages": out,
+                       "waiting": [{k: s.get(k) for k in ("uid", "to", "subject", "date", "days", "task")}
+                                   | (s.get("waiting") or {}) for s in waits]},
                       ensure_ascii=False, indent=1, default=str) + "\n"
 
 
-def to_markdown(cfg, msgs, opts, elapsed, task_error=None):
+def to_markdown(cfg, msgs, opts, elapsed, task_error=None, waits=()):
     cats = cfg["categories"]
     st = stats(msgs)
     done = [m for m in msgs if "ai" in m]
@@ -84,6 +86,20 @@ def to_markdown(cfg, msgs, opts, elapsed, task_error=None):
     if not todos:
         lines.append("- none")
     lines.append("")
+
+    if waits:
+        lines += ["## Waiting for replies", "",
+                  f"Mail you sent more than {describe_duration(cfg['waiting']['after'])} ago (looking back "
+                  f"{describe_duration(cfg['waiting']['lookback'])}) that asked for something and got no answer yet.",
+                  ""]
+        for s in waits:
+            to = ", ".join(short_from(t) for t in s.get("to") or [])
+            task = {"added": " · follow-up task added", "would add": " · follow-up task (dry run)",
+                    "exists": " · task exists"}.get(s.get("task"), "")
+            lines.append(f"- **{s['subject'] or '(no subject)'}** — to {to}, sent {s['days']} days ago "
+                         f"({parse_date(s['date']).astimezone():%a %d %b}) · {s['waiting']['category']}{task}  ")
+            lines.append(f"  Waiting for {s['waiting']['waiting_for']}.")
+        lines.append("")
 
     for cat in cats:
         ms = [m for m in done if m["ai"]["category"] == cat]

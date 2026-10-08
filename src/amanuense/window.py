@@ -45,6 +45,23 @@ def parse_window(spec, now=None, last_run=None):
     raise ValueError(f"unknown window {spec!r}; use one of: {HELP}")
 
 
+def parse_duration(value):
+    """7 or "7" (days), "36h", "7d", "2w" -> timedelta."""
+    s = str(value).strip().lower()
+    if m := re.fullmatch(r"(\d+(?:\.\d+)?)\s*([hdw]?)", s):
+        return timedelta(**{_UNITS[m[2] or "d"]: float(m[1])})
+    raise ValueError(f"bad duration {value!r}: use e.g. 36h, 7d, 2w")
+
+
+def describe_duration(value):
+    d = parse_duration(value)
+    if d.days >= 14 and d.days % 7 == 0 and d.seconds == 0:
+        return f"{d.days // 7} weeks"
+    if d.seconds == 0:
+        return f"{d.days} day{'' if d.days == 1 else 's'}"
+    return f"{d.total_seconds() / 3600:g} hours"
+
+
 def describe(start, end):
     fmt = "%a %d %b %H:%M"
     return f"{start:{fmt}} → {end:{fmt}}"

@@ -148,10 +148,15 @@ def fake_classify(cfg, system, msg):
                        cfg["categories"], cfg["fallback"])
 
 
+async def entered(cfg, box, opts):
+    async with box as b:
+        return await triage.run(cfg, b, opts)
+
+
 def run_fake(monkeypatch, cfg, box, **kw):
     monkeypatch.setattr(model, "classify", fake_classify)
     start, end = window.parse_window("24h")
-    return asyncio.run(triage.run(cfg, box, triage.Options(start=start, end=end, **kw)))
+    return asyncio.run(entered(cfg, box, triage.Options(start=start, end=end, **kw)))
 
 
 def test_digest_selection_and_handled(monkeypatch):
@@ -269,7 +274,7 @@ def test_missing_folder_is_reported(monkeypatch):
     opts = triage.Options(*window.parse_window("24h"))
     box = FakeMailbox(cfg)
     box.extra = {}  # the folder doesn't exist on the server
-    msgs = asyncio.run(triage.run(cfg, box, opts))
+    msgs = asyncio.run(entered(cfg, box, opts))
     assert len(msgs) == 6 and "could not read folder Nope" in opts.problems[0]  # the run went on
     assert "**Problem:** could not read folder Nope" in render.to_markdown(cfg, msgs, opts, 1)
 
@@ -286,3 +291,84 @@ def test_tasks_for_expiring_mail(monkeypatch, taskdb):
     ids, uids = taskdb.existing_refs(cfg)
     assert ("work", "Quarantine", 7) in uids and ("work", "INBOX", 1) in uids
     assert taskdb.add_tasks(cfg, run_fake(monkeypatch, cfg, FakeMailbox(cfg))) == 0
+
+
+def fake_ask(cfg, s):
+    asks = "could you" in s["body"].lower() or "can we" in s["body"].lower()
+    return {"expects_reply": asks, "waiting_for": "an answer" if asks else None, "category": "research"}
+
+
+def test_waiting_candidates():
+    from amanuense import waiting
+    cfg = config.load(None, require_file=False)
+    box = FakeMailbox(cfg)
+    now = datetime.now().astimezone()
+    received = [{**m, "folder": "INBOX"} for m in box.inbox] + [{**m, "folder": "Archive"} for m in box.archive]
+    found = {s["uid"] for s in waiting.candidates(cfg, box.sent, received, now)}
+    assert found == {102, 103}   # Lee and Bob; Carla replied (archived), Dan's thread was followed up 2 days ago
+    assert waiting.conversation({"subject": "RE: Fwd: Referee report", "to": ["Dan <dan@example.org>"]}) == \
+        waiting.conversation({"subject": "Referee report", "to": ["dan@example.org"]})
+
+
+def test_waiting_find(monkeypatch):
+    from amanuense import waiting
+    monkeypatch.setattr(waiting, "ask", fake_ask)
+    cfg = config.load(None, require_file=False)
+
+    async def go():
+        async with FakeMailbox(cfg) as box:
+            return await waiting.find(cfg, box)
+    waits = asyncio.run(go())
+    assert [s["uid"] for s in waits] == [102]                       # Bob's thank-you is not waiting
+    assert waits[0]["days"] == 10 and "body" not in waits[0]
+
+
+def test_followup_tasks(monkeypatch, taskdb):
+    from amanuense import waiting
+    monkeypatch.setattr(waiting, "ask", fake_ask)
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+
+    async def go():
+        async with FakeMailbox(cfg) as box:
+            return await waiting.find(cfg, box)
+    waits = asyncio.run(go())
+    assert taskdb.add_followups(cfg, waits) == 1
+    t = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))[0]
+    assert set(t["tags"]) == {"research", "email", "followup"} and t["description"] == "Follow up: an answer"
+    assert "folder Sent" in t["annotations"][0]["description"]
+    assert taskdb.add_followups(cfg, asyncio.run(go())) == 0          # not twice
+
+
+def test_cli_digest_end_to_end(monkeypatch, tmp_path, capsys):
+    """The real command path (mailbox session, waiting, render), with stub model calls."""
+    from amanuense import waiting
+    monkeypatch.setattr(model, "classify", fake_classify)
+    monkeypatch.setattr(waiting, "ask", fake_ask)
+    out = tmp_path / "digest.md"
+    assert cli.main(["digest", "--test", "--no-tasks", "-o", str(out)]) == 0
+    md = out.read_text()
+    assert "## Proposed to-dos" in md and "## Waiting for replies" in md and "Figure 2" in md
+    assert "1 waiting for replies" in capsys.readouterr().out
+    assert cli.main(["tag", "--test", "--dry-run"]) == 0
+
+
+def test_durations():
+    assert window.parse_duration(7) == timedelta(days=7)
+    assert window.parse_duration("36h") == timedelta(hours=36)
+    assert window.parse_duration("2w") == timedelta(weeks=2)
+    assert window.describe_duration("2w") == "2 weeks" and window.describe_duration("1d") == "1 day"
+    with pytest.raises(ValueError):
+        window.parse_duration("soon")
+    a = cli.build_parser().parse_args(["digest", "--waiting-after", "3d", "--waiting-lookback", "2w"])
+    assert cli.overrides(a)["waiting"] == {"after": "3d", "lookback": "2w"}
+    with pytest.raises(SystemExit):
+        config.load(None, {"waiting": {"after": "a while"}}, require_file=False)
+
+
+def test_waiting_after_option():
+    from amanuense import waiting
+    cfg = config.load(None, {"waiting": {"after": "11d"}}, require_file=False)
+    box = FakeMailbox(cfg)
+    now = datetime.now().astimezone()
+    received = [{**m, "folder": "INBOX"} for m in box.inbox] + [{**m, "folder": "Archive"} for m in box.archive]
+    assert {s["uid"] for s in waiting.candidates(cfg, box.sent, received, now)} == set()  # Lee: 10 days < 11
