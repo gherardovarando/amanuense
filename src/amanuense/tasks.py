@@ -140,8 +140,9 @@ def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None, notes
 
 
 def add_tasks(cfg, msgs, dry_run=False):
-    """Create a task for each open to-do that doesn't have one yet. Sets m["task"] on those messages."""
-    todo = [m for m in msgs if "ai" in m and m["ai"]["needs_action"] and not m["handled"]]
+    """Create a task for each open to-do that doesn't have one yet. Sets m["task"] on those messages.
+    Mail in extra folders dated before the window gets none: earlier runs already saw it."""
+    todo = [m for m in msgs if "ai" in m and m["ai"]["needs_action"] and not m["handled"] and not m.get("before_window")]
     return _add(cfg, todo, build, dry_run)
 
 

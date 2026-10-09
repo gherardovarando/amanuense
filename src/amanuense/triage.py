@@ -66,6 +66,9 @@ async def extra_folders(cfg, box, opts):
         for m in found:
             m["folder"] = name
             m["folder_label"] = f.get("label") or name
+            # Older mail in a folder read whole was there on earlier runs (or before amanuense ran at
+            # all): it shows in the digest but gets no task, so a backlog doesn't become stale tasks.
+            m["before_window"] = parse_date(m["date"]) < opts.start
             if f.get("project"):
                 m["project"] = f["project"]
             if f.get("expires_days"):

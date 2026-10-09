@@ -248,7 +248,7 @@ project = "conf2026"    # optional: Taskwarrior project for tasks from this fold
 - **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
 - **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
 - **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
-- **Tasks:** their due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
+- **Tasks:** only messages dated inside the window get tasks. Older ones were there on earlier runs, or before you started using amanuense, so they're listed in the digest but get no task: a backlog doesn't turn into stale tasks. The due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
 - **Same email in two folders** (sent to two of your addresses): it's triaged once, from the inbox or the first folder listed.
 - **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
 

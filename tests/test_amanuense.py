@@ -279,9 +279,21 @@ def test_missing_folder_is_reported(monkeypatch):
     assert "**Problem:** could not read folder Nope" in templates.render(cfg, "brief", msgs, opts, 1)
 
 
+def fresh_box(cfg):
+    """FakeMailbox whose held message arrived in the window, so it can get a task."""
+    box = FakeMailbox(cfg)
+    box.extra[cfg["folders"][0]["name"]][0]["date"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    return box
+
+
 def test_tasks_for_expiring_mail(monkeypatch, taskdb):
     cfg = config.load(None, {**FOLDERS, "mail": {"account": "work"}}, require_file=False)
     msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    taskdb.add_tasks(cfg, msgs)
+    held = next(m for m in msgs if m["uid"] == 7)
+    assert held["before_window"] and held.get("task") is None      # 4 days old: earlier runs saw it, no task
+    assert taskdb.add_tasks(cfg, [held]) == 0
+    msgs = run_fake(monkeypatch, cfg, fresh_box(cfg))
     taskdb.add_tasks(cfg, msgs)
     t = next(t for t in __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
              if "folder Quarantine" in t["annotations"][0]["description"])
@@ -290,7 +302,7 @@ def test_tasks_for_expiring_mail(monkeypatch, taskdb):
     assert "IMAP uid 7, account work, folder Quarantine," in t["annotations"][0]["description"]
     ids, uids = taskdb.existing_refs(cfg)
     assert ("work", "Quarantine", 7) in uids and ("work", "INBOX", 1) in uids
-    assert taskdb.add_tasks(cfg, run_fake(monkeypatch, cfg, FakeMailbox(cfg))) == 0
+    assert taskdb.add_tasks(cfg, run_fake(monkeypatch, cfg, fresh_box(cfg))) == 0
 
 
 def fake_ask(cfg, s):
@@ -647,7 +659,7 @@ def test_digest_delivers_to_calendar(fake_caldav, tmp_path, monkeypatch):
 def test_same_email_in_two_folders(monkeypatch, taskdb):
     folders = [{"name": "Quarantine", "expires_days": 14}, {"name": "Conf", "expires_days": 14, "project": "conf"}]
     cfg = config.load(None, {"folders": folders, "mail": {"account": "work"}}, require_file=False)
-    box = FakeMailbox(cfg)
+    box = fresh_box(cfg)
     box.extra["Conf"] = [{**box.extra["Quarantine"][0], "uid": 9}]   # same Message-ID, other folder and uid
     msgs = run_fake(monkeypatch, cfg, box)
     copies = [m for m in msgs if m["messageId"] == "<7@test>"]
@@ -664,7 +676,7 @@ def test_tasks_free_text_folder_note(monkeypatch, taskdb):
     cfg = config.load(None, {**FOLDERS, "mail": {"account": "work"}}, require_file=False)
     taskdb._task(cfg, "add", "Camera-ready papers", "+events")
     taskdb._task(cfg, "1", "annotate", "filed: Quarantine uid 3 + corrected uid 7")
-    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    msgs = run_fake(monkeypatch, cfg, fresh_box(cfg))
     taskdb.add_tasks(cfg, msgs)
     assert next(m for m in msgs if m["uid"] == 7)["task"] == "exists"
     assert next(m for m in msgs if m["uid"] == 3)["task"] == "added"     # uid 3 of the inbox is another email
