@@ -66,9 +66,27 @@ async def extra_folders(cfg, box, opts):
         for m in found:
             m["folder"] = name
             m["folder_label"] = f.get("label") or name
+            if f.get("project"):
+                m["project"] = f["project"]
             if f.get("expires_days"):
                 m["expires"] = (parse_date(m["date"]) + timedelta(days=int(f["expires_days"]))).isoformat()
         out += found
+    return out
+
+
+def dedup(extra, inbox):
+    """Drop extra-folder messages already seen (same Message-ID) in the inbox or an earlier folder:
+    mail sent to two addresses lands in two folders with different uids. The copy kept gets
+    the project of a dropped one if it has none."""
+    seen = {m["messageId"]: m for m in inbox if m.get("messageId")}
+    out = []
+    for m in extra:
+        first = seen.get(m.get("messageId")) if m.get("messageId") else None
+        if first is None:
+            seen[m.get("messageId")] = m
+            out.append(m)
+        elif m.get("project") and not first.get("project"):
+            first["project"] = m["project"]
     return out
 
 
@@ -84,7 +102,7 @@ async def collect(cfg, box, opts):
                 msgs[m["uid"]] = m
     for m in msgs.values():
         m["folder"] = inbox
-    extra = await extra_folders(cfg, box, opts)
+    extra = dedup(await extra_folders(cfg, box, opts), msgs.values())
     # Extra folders are capped by their own max_messages and always kept: they may be about to expire.
     msgs = extra + sorted(msgs.values(), key=lambda m: parse_date(m["date"]), reverse=True)[
         :max(opts.max_messages - len(extra), 0)]

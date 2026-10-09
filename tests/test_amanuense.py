@@ -642,3 +642,61 @@ def test_digest_delivers_to_calendar(fake_caldav, tmp_path, monkeypatch):
     assert cli.deliver_calendar(cfg, opts, 60, None, msgs, waits).startswith("calendar task")
     body = next(iter(fake_caldav["store"].values())).replace("\r\n ", "")
     assert "SUMMARY:5 to-dos (2 urgent)" in body and "Check Section 4" in body
+
+
+def test_same_email_in_two_folders(monkeypatch, taskdb):
+    folders = [{"name": "Quarantine", "expires_days": 14}, {"name": "Conf", "expires_days": 14, "project": "conf"}]
+    cfg = config.load(None, {"folders": folders, "mail": {"account": "work"}}, require_file=False)
+    box = FakeMailbox(cfg)
+    box.extra["Conf"] = [{**box.extra["Quarantine"][0], "uid": 9}]   # same Message-ID, other folder and uid
+    msgs = run_fake(monkeypatch, cfg, box)
+    copies = [m for m in msgs if m["messageId"] == "<7@test>"]
+    assert len(copies) == 1 and copies[0]["folder"] == "Quarantine" and copies[0]["project"] == "conf"
+    msgs.append({**copies[0], "uid": 9, "folder": "Conf"})   # had it been triaged twice anyway
+    taskdb.add_tasks(cfg, msgs)
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    held = [t for t in exported if "<7@test>" in t["annotations"][0]["description"]]
+    assert len(held) == 1 and held[0]["project"] == "conf"
+    assert "deletes the message" in held[0]["annotations"][1]["description"]
+
+
+def test_tasks_free_text_folder_note(monkeypatch, taskdb):
+    cfg = config.load(None, {**FOLDERS, "mail": {"account": "work"}}, require_file=False)
+    taskdb._task(cfg, "add", "Camera-ready papers", "+events")
+    taskdb._task(cfg, "1", "annotate", "filed: Quarantine uid 3 + corrected uid 7")
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    taskdb.add_tasks(cfg, msgs)
+    assert next(m for m in msgs if m["uid"] == 7)["task"] == "exists"
+    assert next(m for m in msgs if m["uid"] == 3)["task"] == "added"     # uid 3 of the inbox is another email
+
+
+def test_tasks_reply_in_thread_is_noted(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    taskdb._task(cfg, "add", "Review the manuscript", "+reviewing")
+    taskdb._task(cfg, "1", "annotate", "msgid:<earlier@test>")
+    box = FakeMailbox(cfg)
+    box.inbox[2]["inReplyTo"] = "<earlier@test>"
+    msgs = run_fake(monkeypatch, cfg, box)
+    n = taskdb.add_tasks(cfg, msgs)
+    assert next(m for m in msgs if m["uid"] == 3)["task"] == "noted"
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    review = next(t for t in exported if t["description"] == "Review the manuscript")
+    assert "reply in this thread: " in review["annotations"][1]["description"]
+    assert "<3@test>" in review["annotations"][1]["description"]
+    assert len(exported) == n + 1
+    assert taskdb.add_tasks(cfg, msgs) == 0 and next(m for m in msgs if m["uid"] == 3)["task"] == "exists"
+
+
+def test_task_past_deadline():
+    from amanuense import tasks
+    cfg = config.load(None, require_file=False)
+    now = datetime.now().astimezone()
+    m = {"uid": 1, "subject": "s", "messageId": "<1@test>",
+         "ai": {"todo": "t", "summary": "", "category": "admin", "deadline": f"{now - timedelta(days=3):%Y-%m-%d}"}}
+    t = tasks.build(cfg, m, now=now)
+    assert "due" not in t and "has passed" in t["annotations"][1]["description"]
+    m["ai"]["deadline"] = f"{now + timedelta(days=20):%Y-%m-%d}"
+    m["expires"] = (now + timedelta(days=5)).isoformat()
+    t = tasks.build(cfg, m, now=now)
+    assert t["due"] == tasks._utc(now + timedelta(days=5))
+    assert "the email's own deadline is" in t["annotations"][1]["description"]

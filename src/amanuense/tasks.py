@@ -56,15 +56,28 @@ def _task(cfg, *args, stdin=None, read_only=False):
 
 
 def existing_refs(cfg):
-    """Message-IDs and (account, folder, uid) triples that already have a task, in any status.
-    An annotation without a folder refers to the inbox."""
-    ids, uids = set(), set()
+    """Message-IDs and (account, folder, uid) triples that already have a task, in any status."""
+    ids, uids = _refs(cfg)
+    return set(ids), uids
+
+
+def _refs(cfg):
+    """({Message-ID: task uuid}, {(account, folder, uid)}) from the annotations of all tasks.
+    An annotation without a folder refers to the inbox. Free-text notes count too: one that
+    names a configured folder (e.g. "/pkg uid 131 + corrected uid 132") covers every uid in it."""
+    ids, uids = {}, set()
     inbox = cfg["mail"]["inbox"]
+    account = cfg["mail"]["account"] or "default"
+    folders = [f["name"] for f in cfg["folders"]]
     for t in json.loads(_task(cfg, "export", read_only=True) or "[]"):
         for a in t.get("annotations") or []:
             text = a.get("description", "")
-            ids.update(MSGID.findall(text))
+            for i in MSGID.findall(text):
+                ids.setdefault(i, t["uuid"])
             uids.update((acc, folder or inbox, int(uid)) for uid, acc, folder in OLD_REF.findall(text))
+            for f in folders:
+                if f in text:
+                    uids.update((account, f, int(u)) for u in re.findall(r"\buid (\d+)", text))
     return ids, uids
 
 
@@ -75,12 +88,21 @@ def _utc(d):
 def build(cfg, m, now=None):
     """Task for an email that needs action."""
     ai = m["ai"]
-    dues = []
-    if ai.get("deadline"):
-        dues.append(datetime.strptime(ai["deadline"], "%Y-%m-%d"))  # local midnight
+    now = now or datetime.now().astimezone()
+    dues, notes = [], []
+    deadline = datetime.strptime(ai["deadline"], "%Y-%m-%d").replace(tzinfo=now.tzinfo) if ai.get("deadline") else None
+    if deadline and deadline.date() < now.date():  # old mail: a due date in the past only adds noise
+        notes.append(f"The email's deadline, {deadline:%d %b}, has passed: check whether this is still needed.")
+    elif deadline:
+        dues.append(deadline)
     if m.get("expires"):  # the server deletes the message then: act before
-        dues.append(datetime.fromisoformat(m["expires"]))
-    return _make(cfg, m, ai["todo"] or ai["summary"] or "Answer email", ai["category"], dues=dues, now=now)
+        expires = datetime.fromisoformat(m["expires"]).astimezone(now.tzinfo)
+        if expires > now and (not dues or expires < dues[0]):
+            dues = [expires]
+            notes.append(f"Due {expires:%d %b} because the server deletes the message then"
+                         + (f"; the email's own deadline is {deadline:%d %b}." if deadline and deadline > expires else "."))
+    return _make(cfg, m, ai["todo"] or ai["summary"] or "Answer email", ai["category"], dues=dues, now=now,
+                 notes=notes)
 
 
 def build_followup(cfg, s, now=None):
@@ -90,7 +112,7 @@ def build_followup(cfg, s, now=None):
                  extra_tags=[cfg["waiting"]["task_tag"]], now=now)
 
 
-def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None):
+def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None, notes=()):
     now = now or datetime.now().astimezone()
     tw = cfg["taskwarrior"]
     account = cfg["mail"]["account"] or "default"
@@ -107,13 +129,13 @@ def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None):
         "entry": _utc(now),
         "description": " ".join(description.split())[:200],
         "tags": tags,
-        "annotations": [{"entry": _utc(now), "description": note}],
+        "annotations": [{"entry": _utc(now), "description": n} for n in [note, *notes]],
     }
     dues = [d.replace(tzinfo=now.tzinfo) if d.tzinfo is None else d.astimezone(now.tzinfo) for d in dues]
     if dues:
         t["due"] = _utc(min(dues))
-    if tw.get("project"):
-        t["project"] = tw["project"]
+    if m.get("project") or tw.get("project"):  # the folder's project, else the default one
+        t["project"] = m.get("project") or tw["project"]
     return t
 
 
@@ -131,15 +153,28 @@ def add_followups(cfg, waits, dry_run=False):
 def _add(cfg, todo, make, dry_run):
     if not todo:
         return 0
-    ids, uids = existing_refs(cfg)
+    ids, uids = _refs(cfg)
     account = cfg["mail"]["account"] or "default"
-    new = []
+    new, notes = [], []
     for m in todo:
-        if m.get("messageId") in ids or (account, m.get("folder", cfg["mail"]["inbox"]), m["uid"]) in uids:
+        key = (account, m.get("folder", cfg["mail"]["inbox"]), m["uid"])
+        if m.get("messageId") in ids or key in uids:
             m["task"] = "exists"
             continue
-        m["task"] = "would add" if dry_run else "added"
-        new.append(make(cfg, m))
-    if new and not dry_run:
-        _task(cfg, "import", "-", stdin=json.dumps(new))
+        if m.get("inReplyTo") in ids:  # a reply in the thread of a task: note it there, no new task
+            m["task"] = "would note" if dry_run else "noted"
+            target = ids[m["inReplyTo"]]
+            notes.append((target, make(cfg, m)["annotations"][0]["description"]))
+        else:
+            m["task"] = "would add" if dry_run else "added"
+            new.append(make(cfg, m))
+            target = new[-1]["uuid"]
+        if m.get("messageId"):  # the same email again later in this run (another folder) is a duplicate
+            ids[m["messageId"]] = target
+        uids.add(key)
+    if not dry_run:
+        if new:
+            _task(cfg, "import", "-", stdin=json.dumps(new))
+        for uuid_, text in notes:
+            _task(cfg, uuid_, "annotate", "--", f"reply in this thread: {text}")
     return len(new)

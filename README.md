@@ -242,12 +242,14 @@ label = "held mail"     # shown in the digest
 expires_days = 14       # the server deletes mail here after 14 days
 all = true              # read the whole folder whatever the window (default)
 max_messages = 100
+project = "conf2026"    # optional: Taskwarrior project for tasks from this folder
 ```
 
 - **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
 - **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
 - **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
-- **Tasks:** their due date is the earlier of the email's deadline and the deletion date.
+- **Tasks:** their due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
+- **Same email in two folders** (sent to two of your addresses): it's triaged once, from the inbox or the first folder listed.
 - **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
 
 ## Waiting for replies
@@ -267,10 +269,12 @@ Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config o
 When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered.
 
 - **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
-- **Description:** the to-do. **Due date:** the deadline, if the email has one.
+- **Description:** the to-do. **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
+- **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else `taskwarrior.project`, else none.
 - **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
-- **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`.
-- **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once.
+- **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
+- **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead. This is the only change amanuense makes to existing tasks.
+- **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once, plus one `task annotate` per reply note.
 - **Test and dry runs:** `--test` and `--dry-run` never add tasks; the digest shows "task (dry run)" instead. `amanuense check` reports whether Taskwarrior is on and how many tasks already point to emails.
 - **`tag` command:** `tag` never adds tasks.
 

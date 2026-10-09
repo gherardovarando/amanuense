@@ -11,9 +11,9 @@ PROMPT = """You triage emails for {owner}. Emails may be in {languages}.
 
 Reply ONLY with JSON with these keys:
 - category: one of {categories}
-- needs_action: true only if the owner personally has to reply, decide, send, sign, review or do something
-- todo: if needs_action, one short imperative sentence in English saying what the owner must do; else null
-- deadline: YYYY-MM-DD if the email gives a date by which the owner must act; else null
+- needs_action: true only if the owner personally has to reply, decide, send, sign, review or do something; false if the owner only has to wait for someone else
+- todo: if needs_action, one short imperative sentence in English saying what the owner must do, naming the person and the paper, document or event concerned (e.g. "Confirm receipt of Smith's camera-ready paper 'Title'"); never add deadlines or steps the email doesn't state; else null
+- deadline: YYYY-MM-DD if the email states a date by which the owner must act; else null
 - priority: "high" if the owner should act within {urgent}, or someone (a coauthor, a manager, a student) needs the owner personally and is waiting; "low" for routine notifications, automated messages, mass mailings, confirmations and anything the owner can safely skip; "normal" otherwise
 - summary: one sentence in English
 
