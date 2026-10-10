@@ -233,6 +233,16 @@ Newsletters, broadcasts, mailing lists, notifications.
 
 Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
 
+### Refining the categories every day
+
+A small local model gets better mostly through its categories file, so it pays to review its work daily, especially in the first weeks:
+
+1. After the morning run, go through the tasks it made: delete the duplicates, complete what was already handled, fix wrong categories, projects, due dates and vague descriptions. A word on why ("dup", "already done", "not my action") helps the next step.
+2. Once a day, ask a more capable agent or model to compare what amanuense produced with what you kept and changed, and to turn the recurring mistakes into fixes. Most fixes are a new example or rule in `categories.md`, for instance "a student's absence note → teaching, needs action". Some are a `[taskwarrior.projects]` rule or a skip rule in the config.
+3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
+
+The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
+
 ## Extra folders
 
 ```toml
