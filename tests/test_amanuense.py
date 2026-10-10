@@ -1,4 +1,6 @@
 import asyncio
+import os
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -693,7 +695,7 @@ def test_tasks_reply_in_thread_is_noted(monkeypatch, taskdb):
     assert next(m for m in msgs if m["uid"] == 3)["task"] == "noted"
     exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
     review = next(t for t in exported if t["description"] == "Review the manuscript")
-    assert "reply in this thread: " in review["annotations"][1]["description"]
+    assert "same thread: " in review["annotations"][1]["description"]
     assert "<3@test>" in review["annotations"][1]["description"]
     assert len(exported) == n + 1
     assert taskdb.add_tasks(cfg, msgs) == 0 and next(m for m in msgs if m["uid"] == 3)["task"] == "exists"
@@ -712,3 +714,41 @@ def test_task_past_deadline():
     t = tasks.build(cfg, m, now=now)
     assert t["due"] == tasks._utc(now + timedelta(days=5))
     assert "the email's own deadline is" in t["annotations"][1]["description"]
+
+
+def test_tasks_same_topic(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}, "taskwarrior": {"projects": {"grantx": r"joint grant"}}},
+                      require_file=False)
+    taskdb._task(cfg, "add", "Old letter", "+research")
+    taskdb._task(cfg, "1", "annotate", "IMAP uid 900, account work, subject: Letter of support, msgid:<old@test>")
+    taskdb._task(cfg, "1", "done")
+    box = FakeMailbox(cfg)
+    box.inbox[0]["subject"] = "Re: Justificación gastos proyecto"
+    box.inbox[2]["subject"] = "RE: [list] Justificación  gastos proyecto 😀"   # same topic, another email
+    box.inbox[5]["body"] += " (joint grant)"
+    box.inbox[5]["subject"] = "Re: Letter of support"
+    msgs = run_fake(monkeypatch, cfg, box)
+    taskdb.add_tasks(cfg, msgs)
+    by_uid = {m["uid"]: m for m in msgs}
+    assert by_uid[1]["task"] == "added" and by_uid[3]["task"] == "noted"
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    first = next(t for t in exported if "uid 1," in t["annotations"][0]["description"])
+    assert "same thread: " in first["annotations"][1]["description"] and "😀" in first["annotations"][1]["description"]
+    letter = next(t for t in exported if "uid 6," in t["annotations"][0]["description"])
+    assert letter["status"] == "pending" and "earlier completed task: Old letter" in letter["annotations"][-1]["description"]
+    data = (Path(os.environ["TASKDATA"]) / "pending.data").read_bytes()
+    data.decode("utf-8")                                   # no CESU-8 surrogates from the emoji
+
+
+def test_task_project_rules_and_length():
+    from amanuense import tasks
+    cfg = config.load(None, {"taskwarrior": {"projects": {"conf": r"conf2026@", "course": r"DUDA ENTREGA"}}},
+                      require_file=False)
+    m = {"uid": 1, "subject": "Duda entrega", "from": "a@x", "to": ["conf2026@example.org"]}
+    assert tasks.project(cfg, m) == "conf"                     # first matching rule
+    assert tasks.project(cfg, {**m, "to": []}) == "course"
+    assert tasks.project(cfg, {**m, "project": "folder"}) == "folder"
+    assert tasks.project(cfg, {"uid": 2, "subject": "x"}) == ""
+    assert tasks.shorten("word " * 40).endswith("word…") and len(tasks.shorten("word " * 40)) <= 121
+    with pytest.raises(SystemExit):
+        config.load(None, {"taskwarrior": {"projects": {"bad": "("}}}, require_file=False)

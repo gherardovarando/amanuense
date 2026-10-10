@@ -270,7 +270,12 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
 
 - **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
 - **Description:** the to-do. **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
-- **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else `taskwarrior.project`, else none.
+- **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else the first `[taskwarrior.projects]` rule that matches, else `taskwarrior.project`, else none. A rule is a name and a regular expression, matched case-insensitively against the subject, sender, recipients and folder:
+  ```toml
+  [taskwarrior.projects]
+  conf2026 = 'CONF ?2026|conf2026@'
+  ```
+- **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. If the matching task is completed or deleted, a new task is made and a note mentions the earlier one. Subjects shorter than 12 characters are too generic and never group.
 - **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
 - **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
 - **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead. This is the only change amanuense makes to existing tasks.

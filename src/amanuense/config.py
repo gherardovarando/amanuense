@@ -38,7 +38,7 @@ DEFAULTS = {
     "calendar": {"enabled": False, "server": "", "url": "", "username": "", "password_file": "",
                  "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
-    "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "rc": {}},
+    "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {}},
 }
 
 # Settings that moved to the categories file.
@@ -114,6 +114,11 @@ def load(path=None, overrides=None, require_file=True):
             window.parse_duration(cfg["waiting"][key])
         except ValueError as e:
             raise SystemExit(f"config: waiting.{key}: {e}") from None
+    for name, pattern in cfg["taskwarrior"]["projects"].items():
+        try:
+            re.compile(pattern)
+        except (re.error, TypeError) as e:
+            raise SystemExit(f"config: taskwarrior.projects.{name}: {e}") from None
     for f in cfg["folders"]:
         if not isinstance(f, dict) or not f.get("name"):
             raise SystemExit("config: every [[folders]] entry needs a name")
