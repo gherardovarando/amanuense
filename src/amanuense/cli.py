@@ -228,10 +228,11 @@ def cmd_digest(cfg, a):
                                       followups=cfg["waiting"]["enabled"]))
     for p in opts.problems:
         print(f"amanuense: warning: {p}", file=sys.stderr)
-    task_error = None
+    task_error, replies = None, 0
     if tasks.enabled(cfg):
         try:  # made-up mail never becomes real tasks
             tasks.add_tasks(cfg, msgs, dry_run=a.dry_run or a.test)
+            replies = tasks.note_replies(cfg, opts.sent, dry_run=a.dry_run or a.test)
             if cfg["waiting"]["tasks"]:
                 tasks.add_followups(cfg, waits, dry_run=a.dry_run or a.test)
         except tasks.TaskError as e:
@@ -245,7 +246,7 @@ def cmd_digest(cfg, a):
         out += ", " + deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits)
     if not a.test and not a.dry_run:  # a trial run must not make `-w last` skip mail next time
         window.write_last_run("digest", opts.end)
-    summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, -> {out}",
+    summary(a, msgs, elapsed, f"{len(waits)} waiting for replies, {replies} replies noted on tasks, -> {out}",
             file=sys.stderr if out == "stdout" else sys.stdout)
 
 

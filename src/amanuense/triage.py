@@ -21,6 +21,7 @@ class Options:
     triage_tagged: bool = True  # False for the tag command: mail already tagged is left alone
     folders: bool = True        # also read the extra folders of the config
     problems: list = field(default_factory=list)  # filled during the run: folders that could not be read
+    sent: list = field(default_factory=list)      # filled during the run: the Sent mail read to spot replies
 
 
 def addr(s):
@@ -144,6 +145,7 @@ def tag_actions(cfg, m, retag):
 
 async def run(cfg, box, opts, log=lambda s: None):
     msgs, sent = await collect(cfg, box, opts)
+    opts.sent = sent
     mark_handled(msgs, sent)
     known = config.keyword_categories(cfg)
     system = model.system_prompt(cfg)

@@ -752,3 +752,26 @@ def test_task_project_rules_and_length():
     assert tasks.shorten("word " * 40).endswith("word…") and len(tasks.shorten("word " * 40)) <= 121
     with pytest.raises(SystemExit):
         config.load(None, {"taskwarrior": {"projects": {"bad": "("}}}, require_file=False)
+
+
+def test_tasks_reply_noted(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    msgs = run_fake(monkeypatch, cfg, FakeMailbox(cfg))
+    taskdb.add_tasks(cfg, msgs)
+    taskdb._task(cfg, "add", "Follow up: figure", "+followup")
+    taskdb._task(cfg, "+followup", "annotate", "msgid:<s2@test>")
+    sent = [{"uid": 110, "date": "2026-10-09T10:00:00+02:00", "messageId": "<r1@test>", "inReplyTo": "<1@test>"},
+            {"uid": 111, "date": "2026-10-09T11:00:00+02:00", "messageId": "<r2@test>", "inReplyTo": "<s2@test>"},
+            {"uid": 112, "date": "2026-10-09T12:00:00+02:00", "messageId": "<r3@test>"}]
+    assert taskdb.note_replies(cfg, sent, dry_run=True) == 1
+    assert taskdb.note_replies(cfg, sent) == 1                 # the follow-up task is left alone
+    assert taskdb.note_replies(cfg, sent) == 0                 # each reply noted once
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    t = next(t for t in exported if "uid 1," in t["annotations"][0]["description"])
+    assert t["status"] == "pending"                            # noted, never closed
+    assert t["annotations"][-1]["description"].startswith("You replied on 2026-10-09 ")
+    assert "<r1@test>" in t["annotations"][-1]["description"]
+    assert "<r1@test>" not in taskdb.existing_refs(cfg)[0]     # the reply is not an email with a task
+    taskdb._task(cfg, t["uuid"], "done")
+    sent[0]["messageId"] = "<r4@test>"
+    assert taskdb.note_replies(cfg, sent) == 0                 # only pending tasks

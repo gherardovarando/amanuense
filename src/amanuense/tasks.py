@@ -9,6 +9,9 @@ which is also how amanuense recognises an email that already has a task, in any
 status (pending, completed or deleted), so a task is never created twice. Tasks you
 made by hand count too, if an annotation has "IMAP uid N, account A" or "msgid:<...>".
 
+When you reply to the email of a pending task, the next digest adds a note "You replied on ..."
+to the task. amanuense never closes a task: you, or another tool reading the notes, decide.
+
 Lookups run with rc.gc=off and rc.hooks=off, so they never change or commit the task data.
 """
 import json
@@ -18,6 +21,8 @@ import shutil
 import subprocess
 import uuid
 from datetime import datetime, timezone
+
+from .triage import parse_date
 
 OLD_REF = re.compile(r"IMAP uid (\d+), account ([^,\s]+)(?:, folder ([^,]+))?")
 MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
@@ -222,3 +227,37 @@ def _add(cfg, todo, make, dry_run, group=False):
         for uuid_, text in notes:
             _task(cfg, uuid_, "annotate", "--", f"same thread: {text}")
     return len(new)
+
+
+REPLIED = "You replied on"
+
+
+def note_replies(cfg, sent, dry_run=False):
+    """Add a note to each pending task whose email you answered: a message in `sent` replies
+    (In-Reply-To) to an email whose Message-ID is in the task's annotations. Follow-up tasks are
+    left out, since there the reply is yours to wait for. Each reply is noted once.
+    Returns the number of notes."""
+    replies = {}
+    for s in sent:
+        if s.get("inReplyTo") and s.get("messageId"):
+            replies.setdefault(s["inReplyTo"], []).append(s)
+    if not replies:
+        return 0
+    notes = []
+    for t in json.loads(_task(cfg, "status:pending", "export", read_only=True) or "[]"):
+        if cfg["waiting"]["task_tag"] in (t.get("tags") or []):
+            continue
+        texts = [a.get("description", "") for a in t.get("annotations") or []]
+        seen = set()
+        for i in {i for x in texts for i in MSGID.findall(x)}:
+            for s in replies.get(i, []):
+                if s["messageId"] in seen or any(s["messageId"] in x for x in texts):
+                    continue  # noted on an earlier run
+                seen.add(s["messageId"])
+                when = parse_date(s["date"]).astimezone()
+                # "reply id", not "message-id": the reply must not count as an email with a task
+                notes.append((t["uuid"], f"{REPLIED} {when:%Y-%m-%d %H:%M} (amanuense, reply id {s['messageId']})"))
+    if not dry_run:
+        for uuid_, text in notes:
+            _task(cfg, uuid_, "annotate", "--", text)
+    return len(notes)
