@@ -9,6 +9,9 @@ which is also how amanuense recognises an email that already has a task, in any
 status (pending, completed or deleted), so a task is never created twice. Tasks you
 made by hand count too, if an annotation has "IMAP uid N, account A" or "msgid:<...>".
 
+A sensitive email (see the [sensitive] config section) gets a task that names only the sender,
+with the sensitive tag and no subject: whoever reads the task list sees nothing of its content.
+
 When you reply to the email of a pending task, the next digest adds a note "You replied on ..."
 to the task. amanuense never closes a task: you, or another tool reading the notes, decide.
 
@@ -22,7 +25,7 @@ import subprocess
 import uuid
 from datetime import datetime, timezone
 
-from .triage import parse_date
+from .triage import parse_date, short_from
 
 OLD_REF = re.compile(r"IMAP uid (\d+), account ([^,\s]+)(?:, folder ([^,]+))?")
 MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
@@ -119,6 +122,9 @@ def build(cfg, m, now=None):
             dues = [expires]
             notes.append(f"Due {expires:%d %b} because the server deletes the message then"
                          + (f"; the email's own deadline is {deadline:%d %b}." if deadline and deadline > expires else "."))
+    if m.get("sensitive"):  # the task says who and that it's sensitive, nothing of the content
+        return _make(cfg, m, f"Sensitive email from {short_from(m.get('from'))}: needs action", ai["category"],
+                     extra_tags=[cfg["sensitive"]["task_tag"]], dues=dues, now=now, notes=notes)
     return _make(cfg, m, ai["todo"] or ai["summary"] or "Answer email", ai["category"], dues=dues, now=now,
                  notes=notes)
 
@@ -157,7 +163,7 @@ def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None, notes
         tags.insert(0, category)
     where = "" if m.get("folder", cfg["mail"]["inbox"]) == cfg["mail"]["inbox"] else f", folder {m['folder']}"
     note = (f"{now:%Y-%m-%d} IMAP uid {m['uid']}, account {account}{where}, "
-            f"subject: {m.get('subject') or '(no subject)'}"
+            f"subject: {'(sensitive)' if m.get('sensitive') else m.get('subject') or '(no subject)'}"
             f" (amanuense, message-id {m.get('messageId') or 'unknown'})")
     t = {
         "uuid": str(uuid.uuid4()),

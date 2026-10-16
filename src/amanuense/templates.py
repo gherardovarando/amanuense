@@ -108,7 +108,7 @@ def item(m, cfg):
         "category": ai.get("category"), "category_from_tag": bool(ai.get("category_from_tag")),
         "needs_action": bool(ai.get("needs_action")), "todo": ai.get("todo") or ai.get("summary") or "",
         "deadline": ai.get("deadline"), "priority": priority(m, cfg) if ai else None,
-        "summary": ai.get("summary") or "",
+        "summary": ai.get("summary") or "", "sensitive": bool(m.get("sensitive")),
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists" or None
         "expires": expires, "days_left": (expires - datetime.now().astimezone()).days if expires else None,
     }

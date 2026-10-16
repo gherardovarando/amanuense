@@ -137,6 +137,7 @@ def results(cfg):
     for m in msgs:
         m.pop("body", None)
         m["handled"] = False
+        m["sensitive"] = m["uid"] == 4
         if m["uid"] == 5:
             m["skip"] = True
         elif m["uid"] in verdicts:

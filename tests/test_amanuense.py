@@ -146,7 +146,8 @@ def test_clean():
 
 def fake_classify(cfg, system, msg):
     cat = "admin" if "facturas" in msg["body"] else "research"
-    return model.clean({"category": cat, "needs_action": True, "todo": "do it", "deadline": None, "summary": "s"},
+    return model.clean({"category": cat, "needs_action": True, "todo": "do it", "deadline": None, "summary": "s",
+                        "sensitive": "sick leave" in msg["body"]},
                        cfg["categories"], cfg["fallback"])
 
 
@@ -775,3 +776,43 @@ def test_tasks_reply_noted(monkeypatch, taskdb):
     taskdb._task(cfg, t["uuid"], "done")
     sent[0]["messageId"] = "<r4@test>"
     assert taskdb.note_replies(cfg, sent) == 0                 # only pending tasks
+
+
+def test_sensitive(monkeypatch, taskdb):
+    cfg = config.load(None, {"mail": {"account": "work"}, "sensitive": {"subject": "letter of support"}},
+                      require_file=False)
+    assert model.clean({}, ["info"], "info")["sensitive"]                    # no answer: sensitive
+    assert "sick leave" in model.system_prompt(cfg) and "sensitive" in model.schema(["info"])["required"]
+    box = FakeMailbox(cfg)
+    box.inbox[3]["body"] = "Hola profe, I am on sick leave this week, can I take the exam later?"
+    box.unread = set()                          # uid 6 only through the window below
+    monkeypatch.setattr(model, "classify", fake_classify)
+    opts = triage.Options(*window.parse_window("2w"), tag=True)
+    msgs = asyncio.run(entered(cfg, box, opts))
+    by_uid = {m["uid"]: m for m in msgs}
+    assert by_uid[4]["sensitive"] and by_uid[6]["sensitive"] and not by_uid[1]["sensitive"]  # model, rule, neither
+    assert ("add", 4, "sensitive") in box.written and ("add", 6, "sensitive") in box.written
+    assert ("add", 1, "sensitive") not in box.written
+    assert {uid for a, uid, kw in box.written if kw == "screened"} == {1, 2, 3, 4, 6}   # every triaged one
+    assert not any(uid == 5 for _, uid, _ in box.written)                                # skipped: not checked
+
+    box = FakeMailbox(cfg)                      # already tagged: nothing added twice, nothing removed
+    box.inbox[3]["body"] = "sick leave"
+    box.inbox[3]["customKeywords"] = ["sensitive", "screened"]
+    asyncio.run(entered(cfg, box, triage.Options(*window.parse_window("2w"), tag=True, retag=True)))
+    assert not any(uid == 4 and kw in ("sensitive", "screened") for _, uid, kw in box.written)
+
+    taskdb.add_tasks(cfg, msgs)
+    exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))
+    t = next(t for t in exported if "uid 4," in t["annotations"][0]["description"])
+    assert t["description"] == "Sensitive email from Estudiante: needs action" and "sensitive" in t["tags"]
+    assert "subject: (sensitive)" in t["annotations"][0]["description"]
+    assert "Duda" not in str(t)                                            # no subject anywhere
+    other = next(t for t in exported if "uid 1," in t["annotations"][0]["description"])
+    assert "sensitive" not in other["tags"] and other["description"] == "do it"
+
+    md = templates.render(cfg, "brief", msgs, opts, 1)
+    assert "🔒" in md
+    assert __import__("json").loads(render.to_json(cfg, msgs, opts, 1))["messages"][0]["sensitive"] is not None
+    with pytest.raises(SystemExit):
+        config.load(None, {"sensitive": {"from": "("}}, require_file=False)

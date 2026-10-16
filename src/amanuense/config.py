@@ -32,6 +32,16 @@ DEFAULTS = {
     "skip": {"enabled": True, "subject": r"\[(BULK|SPAM\?)\]|newsletter",
              "from": r"no-?reply|newsletter|mailer-daemon|notifications?@"},
     "tag": {"enabled": False, "todo_keyword": ""},
+    "sensitive": {
+        "description": ("health, disability, sick leave or reasons for an absence; personal or family matters; "
+                        "HR, salaries, contracts, evaluations of people, disciplinary or legal matters; "
+                        "students' personal circumstances, or grades tied to names; confidential peer review "
+                        "and committee deliberations; ID numbers, bank details, passwords and other credentials"),
+        "from": "", "subject": "",   # regular expressions: matching mail is sensitive whatever the model says
+        "keyword": "sensitive",      # IMAP keyword set when tagging; "" = none
+        "screened": "screened",      # IMAP keyword on every message the model checked, when tagging; "" = none
+        "task_tag": "sensitive",     # Taskwarrior tag on their tasks
+    },
     "waiting": {"enabled": True, "after": "7d", "lookback": "30d", "max_messages": 50,
                 "tasks": False, "task_tag": "followup"},
     "folders": [],  # [[folders]] name, label, expires_days, all, max_messages
@@ -131,11 +141,11 @@ def load(path=None, overrides=None, require_file=True):
     for o in cfg["outputs"]:
         if not isinstance(o, dict) or not o.get("template") or not o.get("path"):
             raise SystemExit("config: every [[outputs]] entry needs a template and a path")
-    for key in ("subject", "from"):
+    for section, key in (("skip", "subject"), ("skip", "from"), ("sensitive", "subject"), ("sensitive", "from")):
         try:
-            re.compile(cfg["skip"][key])
+            re.compile(cfg[section][key])
         except re.error as e:
-            raise SystemExit(f"config: bad regular expression in skip.{key}: {e}") from None
+            raise SystemExit(f"config: bad regular expression in {section}.{key}: {e}") from None
     return cfg
 
 

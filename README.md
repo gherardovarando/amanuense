@@ -11,6 +11,7 @@ A private secretary for your inbox. A small language model running on your own m
   - a deadline
   - a priority (high, normal or low)
   - a summary
+  - whether it is sensitive (see [Sensitive mail](#sensitive-mail))
 
   The layout of the output is a template you choose (see [Templates](#templates)). The default, `brief`, has the to-dos, urgent ones first, then by deadline; the mail you're waiting on; and up to ten things worth knowing. Low-priority mail, mail you already answered and skipped mail are only counted. `long` lists every triaged email grouped by category, and there are shorter and safer-to-share layouts too. One run can write several files, each with its own template.
 
@@ -19,6 +20,7 @@ A private secretary for your inbox. A small language model running on your own m
   If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
 - **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
+- **Sensitive mail.** Mail about health, personal matters, HR, students' circumstances, confidential reviews or credentials is marked sensitive. Its task names only the sender, and tagging sets a `sensitive` keyword in the mailbox, so other tools and agents can leave it closed.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, are left alone. `digest --tag` does both in one run.
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
@@ -176,7 +178,7 @@ A template in `~/.config/amanuense/templates/` overrides a shipped one with the 
 | `waiting_after`, `waiting_lookback` | The waiting settings, in words |
 | `out` | The `[output]` section of the config: any key you add there is `out.<key>` |
 
-Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
+Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `sensitive`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
 
 Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 message`, `3 messages`), and Jinja's own (`length`, `join`, `selectattr`, `sort`, …).
 
@@ -242,6 +244,27 @@ A small local model gets better mostly through its categories file, so it pays t
 3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
 
 The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
+
+## Sensitive mail
+
+Some mail should be read only by you: health, sick leave, personal or family matters, HR and salaries, evaluations of people, students' personal circumstances, confidential reviews, ID numbers, bank details and passwords. amanuense marks such mail, so that an assistant with access to your mailbox or task list (for example an AI agent) knows not to open it without your say-so.
+
+- **How it decides:** the model answers one more question per email, "sensitive: yes or no", and is told to say yes when unsure. Mail matching your own rules is sensitive whatever the model says:
+  ```toml
+  [sensitive]
+  from = 'occupational-health@|hr@'
+  subject = 'confidential|sick leave'
+  # description = "..."   # what counts as sensitive, in the model's instructions
+  ```
+- **In the mailbox** (when tagging, `--tag` or `tag.enabled`):
+  - `sensitive` on sensitive mail (`sensitive.keyword`);
+  - `screened` on every email the model checked (`sensitive.screened`), sensitive or not. Mail without it hasn't been checked yet, for example mail that arrived after the run.
+
+  Both keywords are only ever added, never removed, even with `--retag`. Set either to `""` to turn it off.
+- **Tasks:** the description is only "Sensitive email from <sender>: needs action". The task gets the `sensitive` tag (`sensitive.task_tag`), and its annotation has `subject: (sensitive)` instead of the subject. A task list shown to someone else, or read by an agent, says nothing about the content.
+- **Digest:** your digest still shows the full to-do and summary, marked 🔒.
+
+A small model will miss some sensitive mail, so a reader should still check the sender and subject before opening anything. Mail skipped by the skip rules, and mail the model failed on, gets neither keyword.
 
 ## Extra folders
 

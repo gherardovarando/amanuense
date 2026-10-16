@@ -14,7 +14,7 @@
 {%- endmacro %}
 
 {% macro todo(m, uid=true, category=true) -%}
-- [ ] {{ m.todo }}{{ due(m) }}{{ expiry(m) }} — {% if category %}{{ m.category }}, {% endif %}{{ m.sender }}{% if uid %}, uid {{ m.uid }}{% endif %}{{ task_note(m.task) }}
+- [ ] {% if m.sensitive %}🔒 {% endif %}{{ m.todo }}{{ due(m) }}{{ expiry(m) }} — {% if category %}{{ m.category }}, {% endif %}{{ m.sender }}{% if uid %}, uid {{ m.uid }}{% endif %}{{ task_note(m.task) }}
 {%- endmacro %}
 
 {% macro waiting(s) -%}

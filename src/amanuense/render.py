@@ -28,6 +28,8 @@ def to_json(cfg, msgs, opts, elapsed, task_error=None, waits=()):
     for m in msgs:
         r = {k: m.get(k) for k in _FIELDS if k in m}
         r.update(m.get("ai") or {})
+        if "sensitive" in m:
+            r["sensitive"] = m["sensitive"]  # the model's answer or the config rules
         out.append(r)
     return json.dumps({"window": [opts.start.isoformat(), opts.end.isoformat()], "model": cfg["model"]["name"],
                        "stats": stats(msgs), "elapsed_s": round(elapsed), "task_error": task_error,
