@@ -93,7 +93,8 @@ def build_parser():
     t = sub.add_parser("tag", parents=[sel], help="tag messages in the mailbox with their category",
                        description="Set an IMAP keyword with the category on each message. Messages that "
                                    "already carry a category keyword keep it unless --retag; they are only "
-                                   "checked for sensitive material if they lack the screened keyword.")
+                                   "checked for sensitive material if they lack the screened keyword. Mail with the "
+                                   "screened keyword is skipped unless --retag.")
     t.add_argument("--retag", action="store_true", help="re-triage tagged messages and replace their category keyword")
     t.add_argument("--todo-keyword", metavar="KW", help="also set this keyword on to-dos (e.g. $label4)")
 
@@ -412,8 +413,8 @@ def cmd_tag(cfg, a):
         print(f"amanuense: warning: {p}", file=sys.stderr)
     if not a.test and not a.dry_run:
         window.write_last_run("tag", opts.end)
-    already = sum(1 for m in msgs if m.get("existing") and "ai" not in m)
-    summary(a, msgs, time.time() - t0, f"{already} already tagged{' (dry run)' if a.dry_run else ''}")
+    already = sum(1 for m in msgs if "ai" not in m and not m.get("skip") and not m.get("error"))
+    summary(a, msgs, time.time() - t0, f"{already} already done{' (dry run)' if a.dry_run else ''}")
 
 
 def summary(a, msgs, elapsed, tail, file=sys.stdout):

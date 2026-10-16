@@ -173,9 +173,10 @@ async def run(cfg, box, opts, log=lambda s: None):
         m["skip"] = opts.skip and is_skipped(cfg, m)
         m["sensitive"] = is_sensitive(cfg, m)
         screened = cfg["sensitive"]["screened"]
-        checked = not screened or screened in (m.get("customKeywords") or [])
-        if m["skip"] or (m["existing"] and checked and not opts.retag and not opts.triage_tagged):
-            continue  # tag: mail you tagged is left alone, once it has been checked for sensitive material
+        # tag: mail checked by an earlier run (screened), or tagged by you when screening is off, is left alone
+        done = screened in (m.get("customKeywords") or []) if screened else bool(m["existing"])
+        if m["skip"] or (done and not opts.retag and not opts.triage_tagged):
+            continue
         m["check_only"] = bool(m["existing"] and not opts.retag and not opts.triage_tagged)
         log(f"triaging {i}/{len(msgs)}")
         try:

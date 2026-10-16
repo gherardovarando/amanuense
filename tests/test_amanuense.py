@@ -806,12 +806,15 @@ def test_sensitive(monkeypatch, taskdb):
     box.inbox[3]["body"] = "sick leave"
     box.inbox[3]["customKeywords"] = ["research"]
     box.inbox[2]["customKeywords"] = ["research", "screened"]
+    box.inbox[0]["customKeywords"] = ["screened"]                         # e.g. info mail: no category keyword
     again = asyncio.run(entered(cfg, box, triage.Options(*window.parse_window("2w"), tag=True, triage_tagged=False)))
     four = next(m for m in again if m["uid"] == 4)
     assert ("add", 4, "sensitive") in box.written and ("add", 4, "screened") in box.written
     assert four["ai"]["category"] == "research"                            # your category is kept
     assert not any(uid == 4 and a == "remove" for a, uid, _ in box.written)
     assert not any(uid == 3 for _, uid, _ in box.written)                  # tagged and checked: left alone
+    assert not any(uid == 1 for _, uid, _ in box.written)                  # screened, no category: left alone
+    assert "ai" not in next(m for m in again if m["uid"] == 1)             # and not sent to the model again
     assert render.stats(again)["sensitive"] == 2                           # uid 4 (model) and 6 (rule)
 
     taskdb.add_tasks(cfg, msgs)
