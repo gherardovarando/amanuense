@@ -92,7 +92,8 @@ def build_parser():
 
     t = sub.add_parser("tag", parents=[sel], help="tag messages in the mailbox with their category",
                        description="Set an IMAP keyword with the category on each message. Messages that "
-                                   "already carry a category keyword are left alone unless --retag.")
+                                   "already carry a category keyword keep it unless --retag; they are only "
+                                   "checked for sensitive material if they lack the screened keyword.")
     t.add_argument("--retag", action="store_true", help="re-triage tagged messages and replace their category keyword")
     t.add_argument("--todo-keyword", metavar="KW", help="also set this keyword on to-dos (e.g. $label4)")
 
@@ -423,7 +424,7 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
     print(f"{st['messages']} messages ({st['outside_window']} unread outside the window, "
           f"{st['expiring']} in expiring folders), {st['triaged']} triaged"
           f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
-          f"{st['skipped']} skipped, "
+          f"{st['sensitive']} sensitive, {st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)
 
 

@@ -184,7 +184,7 @@ def test_tagging(monkeypatch):
     msgs = run_fake(monkeypatch, cfg, box, tag=True, triage_tagged=False)
     assert ("add", 1, "admin") in box.written
     assert ("add", 1, "$label4") in box.written
-    assert not any(uid == 3 for _, uid, _ in box.written)   # manual tag left alone
+    assert [kw for _, uid, kw in box.written if uid == 3] == ["screened"]   # manual tag kept, only checked
     assert not any(uid == 5 for _, uid, _ in box.written)   # skipped mail untouched
     assert not any(kw == "$label4" and uid == 2 for _, uid, kw in box.written)  # handled: no to-do
 
@@ -801,6 +801,18 @@ def test_sensitive(monkeypatch, taskdb):
     box.inbox[3]["customKeywords"] = ["sensitive", "screened"]
     asyncio.run(entered(cfg, box, triage.Options(*window.parse_window("2w"), tag=True, retag=True)))
     assert not any(uid == 4 and kw in ("sensitive", "screened") for _, uid, kw in box.written)
+
+    box = FakeMailbox(cfg)                      # tag: tagged by hand but not checked yet
+    box.inbox[3]["body"] = "sick leave"
+    box.inbox[3]["customKeywords"] = ["research"]
+    box.inbox[2]["customKeywords"] = ["research", "screened"]
+    again = asyncio.run(entered(cfg, box, triage.Options(*window.parse_window("2w"), tag=True, triage_tagged=False)))
+    four = next(m for m in again if m["uid"] == 4)
+    assert ("add", 4, "sensitive") in box.written and ("add", 4, "screened") in box.written
+    assert four["ai"]["category"] == "research"                            # your category is kept
+    assert not any(uid == 4 and a == "remove" for a, uid, _ in box.written)
+    assert not any(uid == 3 for _, uid, _ in box.written)                  # tagged and checked: left alone
+    assert render.stats(again)["sensitive"] == 2                           # uid 4 (model) and 6 (rule)
 
     taskdb.add_tasks(cfg, msgs)
     exported = __import__("json").loads(taskdb._task(cfg, "export", read_only=True))

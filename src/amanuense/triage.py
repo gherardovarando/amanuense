@@ -140,6 +140,18 @@ def tag_actions(cfg, m, retag):
     known = config.keyword_categories(cfg)
     want = config.tag_keyword(cfg, m["ai"]["category"])
     actions = []
+    if not m.get("check_only"):  # mail you tagged that is only checked for sensitive material gets no other keyword
+        actions += _category_actions(cfg, m, retag, have, known, want)
+    sensitive, screened = cfg["sensitive"]["keyword"], cfg["sensitive"]["screened"]
+    if sensitive and m.get("sensitive") and sensitive not in have:  # only ever added, never removed
+        actions.append(("add", sensitive))
+    if screened and screened not in have:  # checked for sensitive material, whatever the answer
+        actions.append(("add", screened))
+    return actions
+
+
+def _category_actions(cfg, m, retag, have, known, want):
+    actions = []
     if retag:
         actions += [("remove", k) for k in sorted(have) if k in known and k != want]
     if want and want not in have and (retag or not m["existing"]):
@@ -147,11 +159,6 @@ def tag_actions(cfg, m, retag):
     todo = cfg["tag"]["todo_keyword"]
     if todo and m["ai"]["needs_action"] and not m["handled"] and todo not in have:
         actions.append(("add", todo))
-    sensitive, screened = cfg["sensitive"]["keyword"], cfg["sensitive"]["screened"]
-    if sensitive and m.get("sensitive") and sensitive not in have:  # only ever added, never removed
-        actions.append(("add", sensitive))
-    if screened and screened not in have:  # checked for sensitive material, whatever the answer
-        actions.append(("add", screened))
     return actions
 
 
@@ -165,8 +172,11 @@ async def run(cfg, box, opts, log=lambda s: None):
         m["existing"] = [known[k] for k in m.get("customKeywords") or [] if k in known]
         m["skip"] = opts.skip and is_skipped(cfg, m)
         m["sensitive"] = is_sensitive(cfg, m)
-        if m["skip"] or (m["existing"] and not opts.retag and not opts.triage_tagged):
-            continue
+        screened = cfg["sensitive"]["screened"]
+        checked = not screened or screened in (m.get("customKeywords") or [])
+        if m["skip"] or (m["existing"] and checked and not opts.retag and not opts.triage_tagged):
+            continue  # tag: mail you tagged is left alone, once it has been checked for sensitive material
+        m["check_only"] = bool(m["existing"] and not opts.retag and not opts.triage_tagged)
         log(f"triaging {i}/{len(msgs)}")
         try:
             m.update(await box.get(m["folder"], m["uid"], cfg["model"]["body_chars"]))

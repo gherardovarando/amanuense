@@ -15,6 +15,7 @@ def stats(msgs):
         "triaged": len(done),
         "todos": sum(1 for m in done if m["ai"]["needs_action"] and not m["handled"]),
         "skipped": sum(1 for m in msgs if m.get("skip")),
+        "sensitive": sum(1 for m in msgs if m.get("sensitive")),
         "errors": sum(1 for m in msgs if m.get("error")),
         "tagged": sum(1 for m in done if any(a == "add" for a, _ in m.get("tag_actions") or [])),
         "tasks": sum(1 for m in done if m.get("task") in ("added", "would add")),
