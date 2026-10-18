@@ -831,3 +831,42 @@ def test_sensitive(monkeypatch, taskdb):
     assert __import__("json").loads(render.to_json(cfg, msgs, opts, 1))["messages"][0]["sensitive"] is not None
     with pytest.raises(SystemExit):
         config.load(None, {"sensitive": {"from": "("}}, require_file=False)
+
+
+def test_held_mail_read_once(monkeypatch):
+    cfg = config.load(None, FOLDERS, require_file=False)
+    calls = []
+    monkeypatch.setattr(model, "classify", lambda c, s, m: calls.append(m["uid"]) or fake_classify(c, s, m))
+    start, end = window.parse_window("24h")
+
+    def go(box, **kw):
+        opts = triage.Options(start=start, end=end, **kw)
+        return opts, {m["uid"]: m for m in asyncio.run(entered(cfg, box, opts))}
+
+    opts, first = go(FakeMailbox(cfg))                          # held mail (4 days old), never read: model
+    assert 7 in calls and first[7]["before_window"] and not first[7].get("ai_reused")
+    cli.save_results(opts, 60, None, list(first.values()), [])  # as the digest does
+    previous = cli.previous_verdicts()
+    assert previous[("Quarantine", 7, "<7@test>")]["todo"] == "do it"
+
+    calls.clear()
+    box = FakeMailbox(cfg)
+    opts, second = go(box, previous=previous, tag=True)         # next day: the earlier verdict, no model call
+    assert 7 not in calls and 1 in calls
+    assert second[7]["ai_reused"] and second[7]["ai"]["todo"] == "do it"
+    assert ("add", 7, "screened") in box.written                # still tagged if it wasn't yet
+    ctx = templates.context(cfg, list(second.values()), opts, 1)
+    assert any(i["uid"] == 7 for i in ctx["todos"]) and ctx["expiring"][0]["uid"] == 7
+    assert render.stats(list(second.values()))["reused"] == 1
+
+    calls.clear()
+    box = FakeMailbox(cfg)
+    box.extra["Quarantine"][0]["customKeywords"] = ["screened"]
+    _, third = go(box)                                          # screened, no verdict kept: listed, not read
+    assert 7 not in calls and "ai" not in third[7] and third[7]["expires"]
+
+    calls.clear()
+    box = fresh_box(cfg)
+    box.extra["Quarantine"][0]["customKeywords"] = ["screened"]
+    go(box, previous=previous)                                  # arrived in the window: always read
+    assert 7 in calls

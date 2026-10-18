@@ -225,6 +225,8 @@ async def session(cfg, a, opts, write, followups=False):
 def cmd_digest(cfg, a):
     check_templates(cfg, a)
     opts = make_options(cfg, a, "digest")
+    if not a.test:  # made-up mail never mixes with real results
+        opts.previous = previous_verdicts()
     t0 = time.time()
     msgs, waits = asyncio.run(session(cfg, a, opts, write=opts.tag and not opts.dry_run,
                                       followups=cfg["waiting"]["enabled"]))
@@ -343,6 +345,16 @@ def deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits):
         return "calendar FAILED"
 
 
+def previous_verdicts():
+    """The model's verdicts in the last digest, by (folder, uid, Message-ID), so held mail read on an
+    earlier day keeps its to-do without another model call."""
+    try:
+        data = json.loads(results_file().read_text())
+    except (OSError, ValueError):
+        return {}
+    return {(m.get("folder"), m.get("uid"), m.get("messageId")): m["ai"] for m in data.get("msgs", []) if m.get("ai")}
+
+
 def load_results():
     try:
         data = json.loads(results_file().read_text())
@@ -422,8 +434,9 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
         return
     st = render.stats(msgs)
     cats = ", ".join(f"{k} {v}" for k, v in st["categories"].items())
+    reused = f" ({st['reused']} from earlier runs)" if st["reused"] else ""
     print(f"{st['messages']} messages ({st['outside_window']} unread outside the window, "
-          f"{st['expiring']} in expiring folders), {st['triaged']} triaged"
+          f"{st['expiring']} in expiring folders), {st['triaged']} triaged{reused}"
           f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
           f"{st['sensitive']} sensitive, {st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)

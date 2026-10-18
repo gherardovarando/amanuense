@@ -22,6 +22,7 @@ class Options:
     folders: bool = True        # also read the extra folders of the config
     problems: list = field(default_factory=list)  # filled during the run: folders that could not be read
     sent: list = field(default_factory=list)      # filled during the run: the Sent mail read to spot replies
+    previous: dict = field(default_factory=dict)  # (folder, uid, Message-ID) -> the model's verdict in the last digest
 
 
 def addr(s):
@@ -177,18 +178,27 @@ async def run(cfg, box, opts, log=lambda s: None):
         done = screened in (m.get("customKeywords") or []) if screened else bool(m["existing"])
         if m["skip"] or (done and not opts.retag and not opts.triage_tagged):
             continue
-        m["check_only"] = bool(m["existing"] and not opts.retag and not opts.triage_tagged)
-        log(f"triaging {i}/{len(msgs)}")
-        try:
-            m.update(await box.get(m["folder"], m["uid"], cfg["model"]["body_chars"]))
-            m["ai"] = await asyncio.to_thread(model.classify, cfg, system, m)
-            m["sensitive"] = m["sensitive"] or m["ai"]["sensitive"]
-        except Exception as e:  # keep going; the message is listed as not triaged
-            m["error"] = type(e).__name__
-            log(f"message {i}: {type(e).__name__}")
-            continue
-        finally:
-            m.pop("body", None)  # don't keep bodies longer than needed
+        prev = opts.previous.get((m["folder"], m["uid"], m.get("messageId"))) if m.get("before_window") else None
+        if prev and not opts.retag:
+            # Held mail from before the window was read on an earlier day: reuse that verdict
+            m["ai"] = dict(prev)
+            m["ai_reused"] = True
+            m["sensitive"] = m["sensitive"] or bool(prev.get("sensitive"))
+        elif m.get("before_window") and not opts.retag and screened and screened in (m.get("customKeywords") or []):
+            continue  # screened on an earlier day, no verdict kept: not sent to the model again
+        else:
+            m["check_only"] = bool(m["existing"] and not opts.retag and not opts.triage_tagged)
+            log(f"triaging {i}/{len(msgs)}")
+            try:
+                m.update(await box.get(m["folder"], m["uid"], cfg["model"]["body_chars"]))
+                m["ai"] = await asyncio.to_thread(model.classify, cfg, system, m)
+                m["sensitive"] = m["sensitive"] or m["ai"]["sensitive"]
+            except Exception as e:  # keep going; the message is listed as not triaged
+                m["error"] = type(e).__name__
+                log(f"message {i}: {type(e).__name__}")
+                continue
+            finally:
+                m.pop("body", None)  # don't keep bodies longer than needed
         if m["existing"] and not opts.retag:
             m["ai"]["category"] = m["existing"][0]  # a tag already on the message wins
             m["ai"]["category_from_tag"] = True

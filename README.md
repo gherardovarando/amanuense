@@ -279,6 +279,7 @@ project = "conf2026"    # optional: Taskwarrior project for tasks from this fold
 ```
 
 - **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
+- **Read by the model once:** a message dated before the window was read on an earlier day. The digest keeps the model's answer from the last run, so the message keeps its to-do without another model call. If there is no earlier answer but the message has the `screened` keyword, it is listed without being read again. Only a message never read before goes to the model. This saves about a minute per held message per run.
 - **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
 - **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
 - **Tasks:** only messages dated inside the window get tasks. Older ones were there on earlier runs, or before you started using amanuense, so they're listed in the digest but get no task: a backlog doesn't turn into stale tasks. The due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
