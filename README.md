@@ -402,7 +402,7 @@ At the owner's request, the agent also searched GitHub for code like this tool's
 
 This search has limits. GitHub's code search only finds text that is almost the same, and only on GitHub. It can't find code that was rewritten or that lives elsewhere, and it can't rule out that the model repeats something it saw in training. If you find code here that comes from your work, we are sorry. Please open an issue in this repository: we will credit you, add your licence, or rewrite or remove the code.
 
-The logo was drawn by the same agent, by hand in SVG: a scribe shaped like a keyhole, writing in a closed room. The name is set in Fira Mono Medium (SIL Open Font License), turned into outlines so it shows the same everywhere. The files are in `docs/logo/`.
+The idea of the logo was the owner's: a scribe shaped like a keyhole, writing in a closed room. The agent drew it by hand in SVG. The name is set in Fira Mono Medium (SIL Open Font License), turned into outlines so it shows the same everywhere. The files are in `docs/logo/`.
 
 ## License
 

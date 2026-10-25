@@ -1,6 +1,7 @@
 # amanuense logo
 
 A scribe shaped like a keyhole, writing in a closed room: the mail is read inside, and stays there.
+The idea is the repository owner's; the AI agent that wrote amanuense drew it in SVG.
 
 | File | Use |
 |---|---|
