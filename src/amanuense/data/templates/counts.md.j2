@@ -10,6 +10,7 @@
 
 - Worth knowing: {{ fyi | length }}, low priority: {{ low | length }}
 - Waiting for replies: {{ waits | length }}
+- Events proposed: {{ events | length }}{% if events %} (first on {{ events[0].event.date | date("%d %b") }}){% endif %}
 - Deleted soon: {{ expiring | length }}{% if expiring %} (first on {{ expiring[0].expires | date("%d %b") }}){% endif %}
 
 {% set dated = todos | selectattr("deadline") | list %}

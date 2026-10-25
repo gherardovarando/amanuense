@@ -101,6 +101,13 @@ rc = {}                # extra rc settings, e.g. { "data.location" = "~/.task-ma
 enabled = false        # digest also tags messages (same as digest --tag)
 todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunderbird "To Do")
 
+[events]
+# Emails that fix an event you attend (a meeting, call, talk, defence on a stated date) are listed in
+# the digest. With url set, each is also added to that CalDAV calendar: tentative, private, once,
+# never replaced or deleted. It uses the server and password of [calendar]. A separate calendar is best.
+url = ""               # e.g. a calendar from `amanuense calendar list`; "" = list them only
+minutes = 60           # length of an event whose end time the email doesn't say
+
 [sensitive]
 # Mail with personal or sensitive material: its tasks name only the sender, and tagging sets
 # the keyword below, so other tools and agents know to leave it closed.

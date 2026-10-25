@@ -585,6 +585,10 @@ def fake_caldav(tmp_path):
             body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
             if not self._auth():
                 return
+            if self.headers.get("If-None-Match") == "*" and self.path in store:
+                self.send_response(412)                 # create-only: never replace
+                self.end_headers()
+                return
             created = self.path not in store
             store[self.path] = body
             self.send_response(201 if created else 204)
@@ -870,3 +874,88 @@ def test_held_mail_read_once(monkeypatch):
     box.extra["Quarantine"][0]["customKeywords"] = ["screened"]
     go(box, previous=previous)                                  # arrived in the window: always read
     assert 7 in calls
+
+
+def test_events_dry_run():
+    cfg = config.load(None, require_file=False)
+    assert "event_class" in model.system_prompt(cfg) and "event_title" in model.schema(["info"])["required"]
+    assert list(model.schema(["info"])["properties"]).index("event_time") < list(model.schema(["info"])["properties"]).index("event_until")
+    e = lambda **kw: model.clean({"category": "info", "event_class": "confirmed", **kw}, ["info"], "info")["event"]
+    for kind in ("proposed", "announced", "none", None):         # only a confirmed event counts
+        assert model.clean({"category": "info", "event_class": kind, "event_title": "x", "event_date": "2026-10-30"},
+                           ["info"], "info")["event"] is None
+    assert model.clock("3:30 PM") == "15:30" and model.clock("15h30") == "15:30" and model.clock("soon") is None
+    assert e(event_title="x", event_date="2026-10-30", event_until="15:30")["start"] == "15:30"   # a lone end time
+    assert e(event_title="Call with Smith", event_date="2026-10-30", event_time="9:30", event_until="10:00",
+             event_place=" Room  2 ") == {"title": "Call with Smith", "date": "2026-10-30", "start": "09:30",
+                                          "end": "10:00", "place": "Room 2"}
+    assert e(event_title="x", event_date="2026-10-30", event_time="15:00", event_until="14:00")["end"] is None
+    assert e(event_title="x", event_date="2026-10-30", event_time="soon")["start"] is None
+    assert e(event_title="x", event_date="2026-02-30") is None and e(event_title="", event_date="2026-10-30") is None
+    assert e() is None and "event_title" not in model.clean({"event_title": "x"}, ["info"], "info")
+
+    msgs, waits = samples.results(cfg)
+    today = datetime.now().astimezone()
+    day = lambda d: f"{today + timedelta(days=d):%Y-%m-%d}"
+    by_uid = {m["uid"]: m for m in msgs}
+    by_uid[1]["ai"]["event"] = {"title": "Old meeting", "date": day(-1), "start": None, "end": None, "place": None}
+    by_uid[3]["ai"]["event"] = {"title": "Defence", "date": day(1), "start": "11:00", "end": None, "place": None}
+    by_uid[4]["ai"]["event"] = dict(by_uid[3]["ai"]["event"])     # the same event in another email
+    opts = triage.Options(*window.parse_window("24h"))
+    ctx = templates.context(cfg, msgs, opts, 1)
+    assert [i["event"]["title"] for i in ctx["events"]] == ["Defence", "Call with Anna about Section 4"]  # no past, once
+    for name in ("brief", "long", "page", "counts"):
+        out = templates.render(cfg, name, msgs, opts, 1, None, waits)
+        assert ("Events" in out) and ("Old meeting" not in out)
+    assert "11:00: Defence" in templates.render(cfg, "brief", msgs, opts, 1, None, waits)
+    assert render.stats(msgs)["events"] == 3                   # upcoming ones
+
+
+def test_events_added_to_calendar(fake_caldav):
+    from amanuense import events
+    cfg = config.load(None, {"calendar": {"server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"]},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/amanuense/"}},
+                      require_file=False)
+    msgs, _ = samples.results(cfg)
+    by_uid = {m["uid"]: m for m in msgs}
+    day = lambda d: f"{datetime.now() + timedelta(days=d):%Y-%m-%d}"
+    by_uid[4]["ai"]["event"] = {"title": "Exam review", "date": day(2), "start": None, "end": None, "place": "Room 1"}
+    by_uid[4]["sensitive"] = True
+    by_uid[3]["ai"]["event"] = {"title": "Old", "date": day(-2), "start": "10:00", "end": None, "place": None}
+
+    assert events.add(cfg, msgs, dry_run=True) == (0, None) and fake_caldav["store"] == {}
+    assert by_uid[2]["event_status"] == "would add"
+    assert events.add(cfg, msgs) == (2, None)                          # uid 2 (sample) and 4; not the past one
+    assert {by_uid[2]["event_status"], by_uid[4]["event_status"]} == {"added"} and "event_status" not in by_uid[3]
+    bodies = {k: v.replace("\r\n ", "") for k, v in fake_caldav["store"].items()}
+    call = next(b for b in bodies.values() if "Anna" in b)
+    assert "STATUS:TENTATIVE" in call and "CLASS:PRIVATE" in call and "DTEND:" in call
+    assert "SUMMARY:Call with Anna about Section 4" in call and "message-id <2@test>" in call
+    exam = next(b for b in bodies.values() if "VALUE=DATE" in b)          # all day
+    assert "SUMMARY:Event (sensitive email from Estudiante)" in exam
+    assert "Exam review" not in exam and "Duda" not in exam and "LOCATION" not in exam
+
+    fake_caldav["store"][next(iter(fake_caldav["store"]))] = "edited by me"
+    assert events.add(cfg, msgs) == (0, None)                          # rerun: nothing replaced
+    assert by_uid[2]["event_status"] == "exists" and "edited by me" in fake_caldav["store"].values()
+
+    cfg["calendar"]["username"] = "someone"
+    added, problem = events.add(cfg, msgs)
+    assert added == 0 and "refused" in problem and by_uid[2]["event_status"] == "failed"
+
+    opts = triage.Options(*window.parse_window("24h"))
+    by_uid[2]["event_status"] = "added"
+    brief = templates.render(cfg, "brief", msgs, opts, 1)
+    assert "## Events" in brief and "added (tentative)" in brief and "I would add" not in brief
+
+
+def test_calendar_checks(fake_caldav):
+    base = {"server": fake_caldav["server"], "username": "me", "password_file": fake_caldav["password_file"]}
+    cfg = config.load(None, {"calendar": {**base, "enabled": True, "url": fake_caldav["server"] + "dav/calendars/me/tasks"},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/nope/"}}, require_file=False)
+    (n1, ok1, d1), (n2, ok2, d2) = cli.calendar_checks(cfg)
+    assert (n1, ok1, d1) == ("calendar", True, '"Tasks"') and n2 == "events calendar" and not ok2 and "not one of" in d2
+    cfg["calendar"]["username"] = "x"
+    assert all(not ok and "refused" in d for _, ok, d in cli.calendar_checks(cfg))
+    assert cli.calendar_checks(config.load(None, require_file=False)) == []

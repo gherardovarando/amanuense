@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, caldav, categories, config, render, samples, tasks, templates, waiting, window
+from . import __version__, caldav, categories, config, events, render, samples, tasks, templates, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -242,6 +242,13 @@ def cmd_digest(cfg, a):
         except tasks.TaskError as e:
             task_error = str(e)
             print(f"amanuense: warning: {e}", file=sys.stderr)
+    try:  # made-up mail never reaches a calendar
+        _, problem = events.add(cfg, msgs, dry_run=a.dry_run or a.test)
+    except (OSError, ValueError) as e:
+        problem = f"{type(e).__name__}: {e}"
+    if problem:
+        opts.problems.append(f"calendar events: {problem}")
+        print(f"amanuense: warning: calendar events: {problem}", file=sys.stderr)
     elapsed = time.time() - t0
     if not a.test:
         save_results(opts, elapsed, task_error, msgs, waits)
@@ -438,7 +445,7 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
     print(f"{st['messages']} messages ({st['outside_window']} unread outside the window, "
           f"{st['expiring']} in expiring folders), {st['triaged']} triaged{reused}"
           f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
-          f"{st['sensitive']} sensitive, {st['skipped']} skipped, "
+          f"{st['sensitive']} sensitive, {st['events']} events ({st['events_added']} added), {st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)
 
 
@@ -492,6 +499,12 @@ def cmd_check(cfg, a):
         report("model", False, f"{m['url']}: {e}")
 
     if a.test:
+        report("calendars", True, "skipped (--test)")
+    else:
+        for name, good, detail in calendar_checks(cfg):
+            report(name, good, detail)
+
+    if a.test:
         report("mail", True, "skipped (--test)")
         for f in cfg["folders"]:
             report(f"folder {f['name']}", True, "skipped (--test)")
@@ -514,6 +527,20 @@ def cmd_check(cfg, a):
         except Exception as e:
             report("mail", False, f"{type(e).__name__}: {str(e)[:200]}")
     return 0 if ok else 1
+
+
+def calendar_checks(cfg):
+    """[(name, ok, detail)] for the configured calendars: the digest's and the events'. Read only."""
+    c = cfg["calendar"]
+    wanted = [(n, u) for n, u in (("calendar", c["url"] if c["enabled"] else ""), ("events calendar", cfg["events"]["url"])) if u]
+    if not wanted:
+        return []
+    try:
+        found = {u.rstrip("/"): n for n, u in caldav.discover(c)}
+    except (caldav.CalendarError, OSError) as e:
+        return [(n, False, str(e)) for n, _ in wanted]
+    return [(n, u.rstrip("/") in found, f'"{found[u.rstrip("/")]}"' if u.rstrip("/") in found
+             else f"{u} is not one of your calendars (`amanuense calendar list`)") for n, u in wanted]
 
 
 def cmd_category(cfg, a):

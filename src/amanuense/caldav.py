@@ -154,6 +154,18 @@ def event_start(c, day, now=None):
     return start
 
 
+def create(c, base_url, uid, body):
+    """PUT a new item only if none with that id exists (If-None-Match: *): never replaces one.
+    Returns True if created, False if it was already there."""
+    url = base_url.rstrip("/") + f"/{uid}.ics"
+    status, _, _ = _request(c, "PUT", url, body, {"Content-Type": "text/calendar; charset=utf-8", "If-None-Match": "*"})
+    if status == 412:
+        return False
+    if status not in (200, 201, 204):
+        raise CalendarError(f"PUT {url}: HTTP {status}")
+    return True
+
+
 def put(c, day, title, notes):
     """Create or replace the day's event. `day` is an aware datetime; returns the event URL."""
     if not c.get("url"):

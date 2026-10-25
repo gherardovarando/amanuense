@@ -17,6 +17,14 @@
 - [ ] {% if m.sensitive %}🔒 {% endif %}{{ m.todo }}{{ due(m) }}{{ expiry(m) }} — {% if category %}{{ m.category }}, {% endif %}{{ m.sender }}{% if uid %}, uid {{ m.uid }}{% endif %}{{ task_note(m.task) }}
 {%- endmacro %}
 
+{% macro event(m) -%}
+- {{ m.event.date | date("%a %d %b") }}{% if m.event.start %} {{ m.event.start }}{% if m.event.end %}–{{ m.event.end }}{% endif %}{% endif %}: {{ m.event.title }}{% if m.event.place %} ({{ m.event.place }}){% endif %} — {{ m.sender }}, uid {{ m.uid }}{{ event_note(m.event_status) }}
+{%- endmacro %}
+
+{% macro event_note(s) -%}
+{% if s == "added" %} · added (tentative){% elif s == "exists" %} · already in the calendar{% elif s == "failed" %} · not added (error){% endif %}
+{%- endmacro %}
+
 {% macro waiting(s) -%}
 - **{{ s.subject }}** — {{ s.to }}, {{ s.days }} days: {{ s.waiting_for }}{{ task_note(s.task, true) }}
 {%- endmacro %}

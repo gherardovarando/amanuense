@@ -12,6 +12,7 @@ A private secretary for your inbox. A small language model running on your own m
   - a priority (high, normal or low)
   - a summary
   - whether it is sensitive (see [Sensitive mail](#sensitive-mail))
+  - an event it fixes, if any (see [Events from mail](#events-from-mail))
 
   The layout of the output is a template you choose (see [Templates](#templates)). The default, `brief`, has the to-dos, urgent ones first, then by deadline; the mail you're waiting on; and up to ten things worth knowing. Low-priority mail, mail you already answered and skipped mail are only counted. `long` lists every triaged email grouped by category, and there are shorter and safer-to-share layouts too. One run can write several files, each with its own template.
 
@@ -169,6 +170,7 @@ A template in `~/.config/amanuense/templates/` overrides a shipped one with the 
 | `skipped`, `errors` | Emails skipped by the rules, and emails the model failed on |
 | `expiring` | Emails in folders the server empties soon, soonest first |
 | `older_unread` | Unread emails from before the window |
+| `events` | Emails that fix an upcoming event, soonest first, each event once |
 | `messages`, `triaged` | Every email read, and those the model triaged |
 | `by_category` | A list of `{name, items}`, one per category that has emails |
 | `waits` | Sent mail waiting for a reply: `subject`, `to`, `to_list`, `date`, `days`, `waiting_for`, `category`, `task` |
@@ -178,7 +180,7 @@ A template in `~/.config/amanuense/templates/` overrides a shipped one with the 
 | `waiting_after`, `waiting_lookback` | The waiting settings, in words |
 | `out` | The `[output]` section of the config: any key you add there is `out.<key>` |
 
-Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `sensitive`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
+Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `sensitive`, `event`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
 
 Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 message`, `3 messages`), and Jinja's own (`length`, `join`, `selectattr`, `sort`, …).
 
@@ -244,6 +246,25 @@ A small local model gets better mostly through its categories file, so it pays t
 3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
 
 The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
+
+## Events from mail
+
+The model also says whether an email fixes an event you are expected to attend: a meeting, call, talk, class or defence on a stated date. It gives a title, the date, start and end times and a place when the email states them.
+
+- **Not events:** a proposal still to be agreed ("can we meet on Tuesday?"), a deadline, or an event you are only told about.
+- **In the digest:** `brief`, `long` and `page` list the upcoming events, soonest first, each once. `counts` has the number, and the summary line says how many were found and added.
+- **In a calendar:** with `events.url` set to a CalDAV calendar, each upcoming event is added there:
+  ```toml
+  [events]
+  url = "https://dav.example.org/calendars/me/amanuense/"   # `amanuense calendar list` shows yours
+  minutes = 60      # length of an event whose end time the email doesn't say
+  ```
+  It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
+- **How events look:** tentative and private, with a description that names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no subject or place. An email that gives a date but no time makes an all-day event.
+- **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
+- **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
+
+Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
 
 ## Sensitive mail
 

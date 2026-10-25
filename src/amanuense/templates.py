@@ -12,7 +12,7 @@ from pathlib import Path
 from jinja2 import ChoiceLoader, select_autoescape, FileSystemLoader, StrictUndefined, TemplateNotFound, TemplateSyntaxError, UndefinedError
 from jinja2.sandbox import SandboxedEnvironment
 
-from . import config
+from . import config, events
 from .triage import parse_date, short_from
 from .window import describe, describe_duration, parse_duration
 
@@ -109,6 +109,8 @@ def item(m, cfg):
         "needs_action": bool(ai.get("needs_action")), "todo": ai.get("todo") or ai.get("summary") or "",
         "deadline": ai.get("deadline"), "priority": priority(m, cfg) if ai else None,
         "summary": ai.get("summary") or "", "sensitive": bool(m.get("sensitive")),
+        "event": ai.get("event"),  # {title, date, start, end, place} or None
+        "event_status": m.get("event_status"),  # "added", "exists", "would add", "failed" or None
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists" or None
         "expires": expires, "days_left": (expires - datetime.now().astimezone()).days if expires else None,
     }
@@ -141,6 +143,8 @@ def context(cfg, msgs, opts, elapsed, task_error=None, waits=()):
         if ms:
             by_category.append({"name": c, "items": ms})
 
+    upcoming = [item(m, cfg) for m in events.upcoming(msgs)]  # soonest first, each event once
+
     def count(xs):
         return {c: n for c in cats if (n := sum(1 for i in xs if i["category"] == c))}
 
@@ -155,6 +159,8 @@ def context(cfg, msgs, opts, elapsed, task_error=None, waits=()):
         "skipped": [i for i in items if i["skipped"]], "errors": [i for i in items if i["error"]],
         "expiring": sorted((i for i in items if i["expires"]), key=lambda i: i["expires"]),
         "older_unread": [i for i in items if i["older_unread"]],
+        "events": upcoming,
+        "events_calendar": bool(cfg["events"]["url"]),
         "by_category": by_category, "count": count,
         "waits": [wait_item(s) for s in waits],
         "waiting_after": describe_duration(cfg["waiting"]["after"]),

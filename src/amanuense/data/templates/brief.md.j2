@@ -22,6 +22,22 @@
 - nothing
 {% endfor %}
 
+{% if events %}
+{% if events_calendar and not dry_run %}
+## Events
+
+From the mail, added to the calendar as tentative: confirm or delete them there.
+{% else %}
+## Events I would add
+
+From the mail; nothing was written to a calendar. Check whether they are right.
+{% endif %}
+
+{% for m in events %}
+{{ x.event(m) }}
+{% endfor %}
+{% endif %}
+
 {% if waits %}
 ## Waiting for replies
 

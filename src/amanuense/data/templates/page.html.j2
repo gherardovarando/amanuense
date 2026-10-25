@@ -41,6 +41,16 @@
 {% endfor %}
 </ul>
 
+{% if events %}
+<h2>{{ "Events" if events_calendar and not dry_run else "Events I would add" }}</h2>
+<ul>
+{% for m in events %}
+  <li>{{ m.event.date | date("%a %d %b") }}{% if m.event.start %} {{ m.event.start }}{% if m.event.end %}–{{ m.event.end }}{% endif %}{% endif %}: {{ m.event.title }}
+    <div class="who">{% if m.event.place %}{{ m.event.place }} · {% endif %}{{ m.sender }} · uid {{ m.uid }}{% if m.event_status == "added" %} · added (tentative){% elif m.event_status == "exists" %} · already in the calendar{% elif m.event_status == "failed" %} · not added (error){% endif %}</div></li>
+{% endfor %}
+</ul>
+{% endif %}
+
 {% if waits %}
 <h2>Waiting for replies</h2>
 <ul>

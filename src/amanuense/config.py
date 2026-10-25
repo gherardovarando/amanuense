@@ -48,6 +48,7 @@ DEFAULTS = {
     "calendar": {"enabled": False, "server": "", "url": "", "username": "", "password_file": "",
                  "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
+    "events": {"url": "", "minutes": 60},  # CalDAV calendar for events from mail ("" = only listed in the digest)
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {}},
 }
 

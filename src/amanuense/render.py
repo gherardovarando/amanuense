@@ -1,6 +1,7 @@
 """Counts for the summary line, and the JSON output. Readable layouts are templates (templates.py)."""
 import json
 from collections import Counter
+from datetime import datetime
 
 
 _FIELDS = ("uid", "folder", "from", "subject", "date", "expires", "handled", "outside_window", "skip", "error",
@@ -14,6 +15,8 @@ def stats(msgs):
         "outside_window": sum(1 for m in msgs if m.get("outside_window")),
         "triaged": len(done),
         "reused": sum(1 for m in done if m.get("ai_reused")),
+        "events": sum(1 for m in done if (m["ai"].get("event") or {}).get("date", "") >= f"{datetime.now():%Y-%m-%d}"),
+        "events_added": sum(1 for m in msgs if m.get("event_status") == "added"),
         "todos": sum(1 for m in done if m["ai"]["needs_action"] and not m["handled"]),
         "skipped": sum(1 for m in msgs if m.get("skip")),
         "sensitive": sum(1 for m in msgs if m.get("sensitive")),
