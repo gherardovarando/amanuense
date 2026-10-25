@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-dark.svg">
+    <img src="docs/logo/logo.svg" alt="amanuense: a scribe, shaped like a keyhole, writing in a closed room" width="420">
+  </picture>
+</p>
+
 # amanuense
 
 A private secretary for your inbox. A small language model running on your own machine reads your recent mail, writes a daily digest with proposed to-dos, and can tag each message with its category in the mailbox. Your mail never leaves the machine.
@@ -382,3 +389,5 @@ This tool was written by an AI coding agent: **Claude Opus 5.5** (model ID `clau
 - a configurable command-line tool
 
 The agent wrote the code and tests and tested them only against made-up emails. Runs on real mail were checked by the owner, since the agent never sees their content.
+
+The logo was drawn by the same agent, by hand in SVG: a scribe shaped like a keyhole, writing in a closed room. The name is set in Fira Mono Medium (SIL Open Font License), turned into outlines so it shows the same everywhere. The files are in `docs/logo/`.
