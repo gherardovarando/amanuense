@@ -114,6 +114,8 @@ def _text(s):
 
 
 def _fold(line):
+    """Fold a content line as RFC 5545 section 3.1 asks: at most 75 bytes per line, continuation
+    lines start with a space, and a UTF-8 character is never split."""
     out, b = [], line.encode()
     while len(b) > 74:
         cut = 74
