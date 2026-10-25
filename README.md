@@ -249,7 +249,7 @@ The review can be based only on the tasks, the digest and your corrections, neve
 
 ## Events from mail
 
-The model also says whether an email fixes an event you are expected to attend: a meeting, call, talk, class or defence on a stated date. It gives a title, the date, start and end times and a place when the email states them.
+The model also says whether an email fixes an event you are expected to attend: a meeting, call, talk, class or defence on a stated date. It gives a title, the date, start and end times and a place when the email states them, and one sentence on what the event is for and your role in it.
 
 - **Not events:** a proposal still to be agreed ("can we meet on Tuesday?"), a deadline, or an event you are only told about.
 - **In the digest:** `brief`, `long` and `page` list the upcoming events, soonest first, each once. `counts` has the number, and the summary line says how many were found and added.
@@ -260,11 +260,11 @@ The model also says whether an email fixes an event you are expected to attend: 
   minutes = 60      # length of an event whose end time the email doesn't say
   ```
   It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
-- **How events look:** tentative and private, with a description that names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no subject or place. An email that gives a date but no time makes an all-day event.
+- **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
 - **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
 - **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
 
-Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
+Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
 
 ## Sensitive mail
 

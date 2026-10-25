@@ -52,7 +52,8 @@ def ics(cfg, m, now=None):
     else:
         title, place = e["title"], e["place"]
         about = f"an email from {sender}, subject: {m.get('subject') or '(no subject)'}"
-    notes = (f"Proposed by amanuense from {about} (message-id {m.get('messageId') or 'unknown'}). "
+    why = "" if m.get("sensitive") or not e.get("why") else e["why"].rstrip(".") + ".\n\n"
+    notes = (f"{why}Proposed by amanuense from {about} (message-id {m.get('messageId') or 'unknown'}). "
              "It may be wrong: confirm it by editing it, or delete it.")
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//amanuense//events//EN", "BEGIN:VEVENT",
              f"UID:{uid(m)}", f"DTSTAMP:{utc(now)}", *when, "STATUS:TENTATIVE", "CLASS:PRIVATE",

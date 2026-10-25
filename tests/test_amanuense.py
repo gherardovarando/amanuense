@@ -888,7 +888,9 @@ def test_events_dry_run():
     assert e(event_title="x", event_date="2026-10-30", event_until="15:30")["start"] == "15:30"   # a lone end time
     assert e(event_title="Call with Smith", event_date="2026-10-30", event_time="9:30", event_until="10:00",
              event_place=" Room  2 ") == {"title": "Call with Smith", "date": "2026-10-30", "start": "09:30",
-                                          "end": "10:00", "place": "Room 2"}
+                                          "end": "10:00", "place": "Room 2", "why": None}
+    assert e(event_title="x", event_date="2026-10-30", event_why=" Plan  the course. ")["why"] == "Plan the course."
+    assert model.clean({"category": "info", "event_class": "none", "event_why": "x"}, ["info"], "info")["event"] is None
     assert e(event_title="x", event_date="2026-10-30", event_time="15:00", event_until="14:00")["end"] is None
     assert e(event_title="x", event_date="2026-10-30", event_time="soon")["start"] is None
     assert e(event_title="x", event_date="2026-02-30") is None and e(event_title="", event_date="2026-10-30") is None
@@ -932,6 +934,7 @@ def test_events_added_to_calendar(fake_caldav):
     call = next(b for b in bodies.values() if "Anna" in b)
     assert "STATUS:TENTATIVE" in call and "CLASS:PRIVATE" in call and "DTEND:" in call
     assert "SUMMARY:Call with Anna about Section 4" in call and "message-id <2@test>" in call
+    assert "DESCRIPTION:Agree on the changes to Section 4.\\n\\nProposed by amanuense" in call   # the reason first
     exam = next(b for b in bodies.values() if "VALUE=DATE" in b)          # all day
     assert "SUMMARY:Event (sensitive email from Estudiante)" in exam
     assert "Exam review" not in exam and "Duda" not in exam and "LOCATION" not in exam

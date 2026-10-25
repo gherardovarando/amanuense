@@ -145,7 +145,8 @@ def results(cfg):
             m["ai"] = {"category": c, "needs_action": need, "todo": todo, "deadline": dl, "priority": prio,
                        "summary": summary, "event": None}
     next(m for m in msgs if m["uid"] == 2)["ai"]["event"] = {"title": "Call with Anna about Section 4", "date": day(3), "start": "10:00",
-                              "end": "10:30", "place": "video call"}
+                              "end": "10:30", "place": "video call",
+                              "why": "Agree on the changes to Section 4."}
     msgs.append({**_msg(9, "Bob <bob@example.org>", "Re: slides", "", 30, now), "handled": True,
                  "ai": {"category": pick("teaching"), "needs_action": True, "todo": "Answer Bob.", "deadline": None,
                         "priority": "normal", "summary": "Bob asks about the slides; you answered."}})
