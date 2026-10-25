@@ -7,7 +7,7 @@ import shlex
 import sys
 import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import __version__, caldav, categories, config, events, render, samples, tasks, templates, waiting, window
@@ -118,11 +118,17 @@ def build_parser():
     tv = tsub.add_parser("preview", help="render a template on made-up results (no mail, no model)")
     tv.add_argument("name")
 
-    cp = sub.add_parser("calendar", help="find your calendars, or put the last digest in the calendar",
+    cp = sub.add_parser("calendar", help="find your calendars, list coming events, or put the last digest in the calendar",
                         description="Deliver the digest as a daily event in a CalDAV calendar ([calendar] in the config).")
     csub2 = cp.add_subparsers(dest="action", required=True, metavar="ACTION")
     csub2.add_parser("list", help="list the calendars on calendar.server (to choose calendar.url)")
     csub2.add_parser("put", help="put the last digest in the calendar now (replaces today's event)")
+    ce = csub2.add_parser("events", help="list the events of the coming days (read-only)",
+                          description="List the events from today on in your CalDAV calendars, soonest first. "
+                                      "Read-only: nothing on the server changes.")
+    ce.add_argument("--days", type=int, default=7, help="how many days from today (default 7)")
+    ce.add_argument("--calendar", action="append", metavar="NAME",
+                    help="only this calendar (repeatable); default: all, except the digest's own (calendar.url)")
 
     c = sub.add_parser("category", help="list categories, add one, or add an example",
                        description="Categories are the `## name` sections of the categories file; "
@@ -380,12 +386,42 @@ def cmd_calendar(cfg, a):
                 sys.exit("amanuense: set calendar.server and calendar.username first")
             for name, url in caldav.discover(c):
                 print(f"{name}\n    url = \"{url}\"")
+        elif a.action == "events":
+            print_events(c, a.days, a.calendar)
         elif a.action == "put":
             opts, data = load_results()
             print(deliver_calendar(cfg, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"]))
     except caldav.CalendarError as e:
         sys.exit(f"amanuense: calendar: {e}")
     return 0
+
+
+def print_events(c, days, names=None):
+    """Each event on one line: day, time, title, place, calendar and status; under it the first line
+    of its notes (for amanuense's events, what the event is for)."""
+    if not c.get("server") or not c.get("username"):
+        sys.exit("amanuense: set calendar.server and calendar.username first")
+    start = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+    end = start + timedelta(days=days)
+    cals = [(n, u) for n, u in caldav.discover(c)
+            if (n in names if names else u.rstrip("/") != (c.get("url") or "").rstrip("/"))]
+    if names and len(cals) < len(set(names)):
+        sys.exit(f"amanuense: calendar: not found: {', '.join(set(names) - {n for n, _ in cals})} (`amanuense calendar list`)")
+    found = [(e, n) for n, u in cals for e in caldav.read_events(c, u, start, end)]
+    print(f"{len(found)} events, {start:%a %d %b} to {end - timedelta(days=1):%a %d %b}, "
+          f"calendars: {', '.join(n for n, _ in cals)}")
+    for e, n in sorted(found, key=lambda x: x[0]["start"]):
+        if e["all_day"]:
+            when = f"{e['start']:%a %d %b} all day"
+        else:
+            when = f"{e['start']:%a %d %b %H:%M}" + (f"–{e['end']:%H:%M}" if e["end"] and e["end"].date() == e["start"].date() else "")
+        if e["repeats"]:  # the server didn't expand it: only its first time is known
+            when = f"repeating, from {when}"
+        extra = [x for x in (n, e["status"] if e["status"] not in ("", "confirmed") else "") if x]
+        print(f"- {when}  {e['title']}" + (f" @ {e['place']}" if e["place"] else "") + f"  [{', '.join(extra)}]")
+        first = e["notes"].strip().splitlines()[0] if e["notes"].strip() else ""
+        if first:
+            print(f"    {first[:200]}")
 
 
 def cmd_render(cfg, a):

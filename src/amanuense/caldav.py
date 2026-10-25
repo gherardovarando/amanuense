@@ -178,3 +178,80 @@ def put(c, day, title, notes):
     if status not in (200, 201, 204):
         raise CalendarError(f"PUT {url}: HTTP {status}")
     return start
+
+
+# Reading events (read-only): `amanuense calendar events` lists what is coming, for you or an assistant.
+
+def read_events(c, url, start, end):
+    """VEVENTs of one calendar that overlap [start, end) (aware datetimes), soonest first.
+    The server is asked to expand repeating events; one it returns unexpanded keeps its first time
+    and is marked repeats=True. Only REPORT is sent: nothing on the server changes."""
+    f = lambda d: d.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    rng = f'start="{f(start)}" end="{f(end)}"'
+    body = ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop>'
+            f'<c:calendar-data><c:expand {rng}/></c:calendar-data></d:prop><c:filter><c:comp-filter name="VCALENDAR">'
+            f'<c:comp-filter name="VEVENT"><c:time-range {rng}/></c:comp-filter></c:comp-filter></c:filter></c:calendar-query>')
+    status, data, _ = _request(c, "REPORT", url, body, {"Depth": "1", "Content-Type": "application/xml"})
+    if status != 207:
+        raise CalendarError(f"REPORT {url}: HTTP {status}")
+    out = []
+    for el in ET.fromstring(data).iter("{urn:ietf:params:xml:ns:caldav}calendar-data"):
+        for e in parse_events(el.text or ""):
+            stop = e["end"] or e["start"]
+            if e["repeats"] or (e["start"] < end and (stop > start or e["start"] >= start)):
+                out.append(e)
+    return sorted(out, key=lambda e: e["start"])
+
+
+def parse_events(text):
+    """The VEVENTs of an iCalendar text as dicts: start/end (aware), all_day, title, place, status,
+    notes, repeats."""
+    lines = re.sub(r"\r?\n[ \t]", "", text).splitlines()
+    events, cur = [], None
+    for line in lines:
+        if line == "BEGIN:VEVENT":
+            cur = {}
+        elif line == "END:VEVENT" and cur is not None:
+            e = _event(cur)
+            if e:
+                events.append(e)
+            cur = None
+        elif cur is not None and ":" in line:
+            head, value = line.split(":", 1)
+            name, *params = head.split(";")
+            cur.setdefault(name.upper(), (dict(p.split("=", 1) for p in params if "=" in p), value))
+    return events
+
+
+def _when(prop):
+    if not prop:
+        return None, False
+    params, v = prop
+    if params.get("VALUE") == "DATE" or re.fullmatch(r"\d{8}", v):
+        return datetime.strptime(v[:8], "%Y%m%d").astimezone(), True
+    d = datetime.strptime(v[:15], "%Y%m%dT%H%M%S")
+    if v.endswith("Z"):
+        return d.replace(tzinfo=timezone.utc).astimezone(), False
+    try:
+        from zoneinfo import ZoneInfo
+        return d.replace(tzinfo=ZoneInfo(params["TZID"])).astimezone(), False
+    except Exception:  # no or unknown TZID: local time
+        return d.astimezone(), False
+
+
+def _untext(s):
+    return re.sub(r"\\([\;,nN])", lambda m: "\n" if m.group(1) in "nN" else m.group(1), s)
+
+
+def _event(p):
+    try:
+        start, all_day = _when(p.get("DTSTART"))
+        end, _ = _when(p.get("DTEND"))
+    except ValueError:
+        return None
+    if not start:
+        return None
+    get = lambda k: _untext(p[k][1]).strip() if k in p else ""
+    return {"start": start, "end": end, "all_day": all_day, "title": get("SUMMARY") or "(no title)",
+            "place": get("LOCATION"), "status": get("STATUS").lower(), "notes": get("DESCRIPTION"),
+            "repeats": "RRULE" in p}

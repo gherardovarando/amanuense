@@ -581,6 +581,15 @@ def fake_caldav(tmp_path):
                           + cal("/dav/calendars/me/personal/", "Personal", "VEVENT")
                           + cal("/dav/calendars/me/tasks/", "Tasks", "VTODO"))
 
+        def do_REPORT(self):                            # every item of the calendar; the client filters by time
+            from xml.sax.saxutils import escape
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            if not self._auth():
+                return
+            self._xml("".join(f"<d:response><d:href>{k}</d:href><d:propstat><d:prop><c:calendar-data>{escape(v)}"
+                              "</c:calendar-data></d:prop></d:propstat></d:response>"
+                              for k, v in store.items() if k.startswith(self.path)))
+
         def do_PUT(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
             if not self._auth():
@@ -963,3 +972,36 @@ def test_calendar_checks(fake_caldav):
     cfg["calendar"]["username"] = "x"
     assert all(not ok and "refused" in d for _, ok, d in cli.calendar_checks(cfg))
     assert cli.calendar_checks(config.load(None, require_file=False)) == []
+
+
+def test_calendar_events(fake_caldav, capsys):
+    """`calendar events` lists the coming events of every calendar, read-only."""
+    from amanuense import caldav
+    c = {"server": fake_caldav["server"], "username": "me", "password_file": fake_caldav["password_file"],
+         "url": fake_caldav["server"] + "dav/calendars/me/tasks/"}
+    now = datetime.now().astimezone()
+    d = lambda days, h=10: (now + timedelta(days=days)).replace(hour=h, minute=0, second=0, microsecond=0)
+    utc = lambda t: t.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    cal = lambda *lines: "\r\n".join(["BEGIN:VCALENDAR", "BEGIN:VEVENT", *lines, "END:VEVENT", "END:VCALENDAR"])
+    store = fake_caldav["store"]
+    store["/dav/calendars/me/personal/a.ics"] = caldav.ics("a", d(1, 15), 30, "Call with Smith, paper", "Plan the revision.\nmore", False, "event")
+    store["/dav/calendars/me/personal/b.ics"] = cal(f"DTSTART:{utc(d(-3))}", f"DTEND:{utc(d(-3, 11))}", "SUMMARY:Old")
+    store["/dav/calendars/me/personal/c.ics"] = cal(f"DTSTART;VALUE=DATE:{d(2):%Y%m%d}", "SUMMARY:Open day", "STATUS:TENTATIVE")
+    store["/dav/calendars/me/personal/r.ics"] = cal(f"DTSTART;TZID=Europe/Madrid:{d(-14, 9):%Y%m%dT%H%M%S}",
+                                                     "RRULE:FREQ=WEEKLY", "SUMMARY:Class", "LOCATION:Room 1")
+    store["/dav/calendars/me/personal/x.ics"] = cal(f"DTSTART:{utc(d(30))}", "SUMMARY:Far away")
+    store["/dav/calendars/me/tasks/t.ics"] = cal(f"DTSTART:{utc(d(1))}", "SUMMARY:Digest item")
+    before = dict(store)
+    cli.print_events(c, 7)
+    out = capsys.readouterr().out
+    assert out.startswith("3 events") and "calendars: Personal" in out and "Tasks" not in out.splitlines()[0]
+    assert "Old" not in out and "Far away" not in out and "Digest item" not in out   # past, too far, digest calendar
+    assert "15:00–15:30  Call with Smith, paper  [Personal]" in out and "    Plan the revision." in out and "more" not in out
+    assert "all day  Open day  [Personal, tentative]" in out
+    assert "- repeating, from " in out and "Class @ Room 1  [Personal]" in out               # not expanded by this server: marked
+    assert out.index("Class") < out.index("Call with Smith")         # soonest first
+    assert store == before                                             # read-only
+    cli.print_events(c, 7, ["Tasks"])
+    assert "Digest item" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        cli.print_events(c, 7, ["Nope"])

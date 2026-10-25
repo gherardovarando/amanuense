@@ -25,7 +25,7 @@ A private secretary for your inbox. A small language model running on your own m
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, keep it. If they have no `screened` keyword yet, the model still checks them for [sensitive material](#sensitive-mail). Mail that already has `screened` was checked by an earlier run and is skipped, unless `--retag`. `digest --tag` does both in one run.
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
-- **`amanuense calendar`** lists your CalDAV calendars, or puts the last digest in one (see [Calendar](#calendar)).
+- **`amanuense calendar`** lists your CalDAV calendars, lists the events of the coming days (`calendar events`), or puts the last digest in one (see [Calendar](#calendar)).
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
@@ -262,6 +262,7 @@ The model also says whether an email fixes an event you are expected to attend: 
   It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
 - **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
 - **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
+- **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
 - **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
 
 Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
