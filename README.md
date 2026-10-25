@@ -24,6 +24,7 @@ A private secretary for your inbox. A small language model running on your own m
 - **Sensitive mail.** Mail about health, personal matters, HR, students' circumstances, confidential reviews or credentials is marked sensitive. Its task names only the sender, and tagging sets a `sensitive` keyword in the mailbox, so other tools and agents can leave it closed.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, keep it. If they have no `screened` keyword yet, the model still checks them for [sensitive material](#sensitive-mail). Mail that already has `screened` was checked by an earlier run and is skipped, unless `--retag`. `digest --tag` does both in one run.
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
+- **`amanuense log`** shows the past runs from a log of counts and ids, or what became of the events it added (see [Run log](#run-log)).
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
 - **`amanuense calendar`** lists your CalDAV calendars, lists the events of the coming days (`calendar events`), or puts the last digest in one (see [Calendar](#calendar)).
 - **`amanuense check`** tests the configuration, the model server and the mail server.
@@ -266,6 +267,21 @@ The model also says whether an email fixes an event you are expected to attend: 
 - **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
 
 Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
+
+## Run log
+
+Each `digest` and `tag` run adds one line to `~/.local/state/amanuense/runs.jsonl` (mode 600). It holds counts and ids only, never text from mail: no subjects, senders, titles or summaries. So you can show it to someone, or to an assistant, that must not see your mail.
+
+- **Per run:** time, command, window, model, minutes and seconds per message; messages, triaged, reused, skipped, errors, sensitive, to-dos per category, tasks added and noted, replies noted, tagged; problems (error messages).
+- **Per event put in the calendar:** its calendar id, date, start time, the IMAP uid of its email, and added / exists / failed.
+
+```
+amanuense log                    # the last 14 runs, one line each (-n 30 for more)
+amanuense log --events           # each event added, and whether it is now tentative, confirmed, moved or deleted
+amanuense log --events --details # the same with each title, read from the calendar
+```
+
+`log --events` only reads the calendar. Events you deleted are a simple measure of the model's mistakes. The mail uid leads back to the email in your mail client.
 
 ## Sensitive mail
 

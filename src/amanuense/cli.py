@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from . import __version__, caldav, categories, config, events, render, samples, tasks, templates, waiting, window
+from . import __version__, caldav, categories, config, events, render, runlog, samples, tasks, templates, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -129,6 +129,14 @@ def build_parser():
     ce.add_argument("--days", type=int, default=7, help="how many days from today (default 7)")
     ce.add_argument("--calendar", action="append", metavar="NAME",
                     help="only this calendar (repeatable); default: all, except the digest's own (calendar.url)")
+
+    lg = sub.add_parser("log", help="the past runs, counts only; or what became of the events added",
+                        description="Show the run log (~/.local/state/amanuense/runs.jsonl): counts and ids only, "
+                                    "never text from mail.")
+    lg.add_argument("-n", type=int, default=14, help="how many runs (default 14)")
+    lg.add_argument("--events", action="store_true",
+                    help="each event added to events.url, and whether it is still tentative, confirmed, moved or deleted")
+    lg.add_argument("--details", action="store_true", help="with --events, also print each event's title (from the calendar)")
 
     c = sub.add_parser("category", help="list categories, add one, or add an example",
                        description="Categories are the `## name` sections of the categories file; "
@@ -258,6 +266,7 @@ def cmd_digest(cfg, a):
     elapsed = time.time() - t0
     if not a.test:
         save_results(opts, elapsed, task_error, msgs, waits)
+        log_run("digest", cfg, opts, msgs, elapsed, task_error, replies)
     out = write_output(cfg, a, opts, elapsed, task_error, msgs, waits)
     if cfg["calendar"]["enabled"] and not a.test:  # made-up mail never reaches the calendar
         out += ", " + deliver_calendar(cfg, opts, elapsed, task_error, msgs, waits)
@@ -466,10 +475,58 @@ def cmd_tag(cfg, a):
     msgs, _ = asyncio.run(session(cfg, a, opts, write=not a.dry_run))
     for p in opts.problems:
         print(f"amanuense: warning: {p}", file=sys.stderr)
+    if not a.test:
+        log_run("tag", cfg, opts, msgs, time.time() - t0)
     if not a.test and not a.dry_run:
         window.write_last_run("tag", opts.end)
     already = sum(1 for m in msgs if "ai" not in m and not m.get("skip") and not m.get("error"))
     summary(a, msgs, time.time() - t0, f"{already} already done{' (dry run)' if a.dry_run else ''}")
+
+
+def log_run(command, cfg, opts, msgs, elapsed, task_error=None, replies=0):
+    try:  # a log that can't be written never stops a run
+        runlog.write(runlog.entry(command, cfg, opts, msgs, elapsed, task_error, replies))
+    except (OSError, KeyError, TypeError, ValueError) as e:
+        print(f"amanuense: warning: run log: {e}", file=sys.stderr)
+
+
+def cmd_log(cfg, a):
+    runs = runlog.read()
+    if not runs:
+        print(f"no runs logged yet ({runlog.path()})")
+        return 0
+    if not a.events:
+        for e in runs[-a.n:]:
+            print(runlog.line(e))
+        return 0
+    # each event amanuense added, once, and what became of it in the calendar
+    added = {}
+    for e in runs:
+        for x in e["calendar_events"]:
+            if x["status"] == "added":
+                added[x["id"]] = {**x, "run": e["time"][:10]}
+    url, c = cfg["events"]["url"], cfg["calendar"]
+    if not url:
+        sys.exit("amanuense: set events.url to look the events up")
+    today = f"{datetime.now():%Y-%m-%d}"
+    counts = {}
+    for x in sorted(added.values(), key=lambda x: (x["date"], x["start"] or "")):
+        try:
+            now = caldav.fetch(c, url, x["id"])
+        except caldav.CalendarError as err:
+            sys.exit(f"amanuense: calendar: {err}")
+        if now is None:
+            state = "deleted"
+        else:
+            moved = f"{now['start']:%Y-%m-%d}" != x["date"] or (not now["all_day"] and f"{now['start']:%H:%M}" != (x["start"] or ""))
+            state = ("moved, " if moved else "") + ("tentative" if now["status"] == "tentative" else "confirmed")
+        if x["date"] < today:
+            state += ", past"
+        counts[state] = counts.get(state, 0) + 1
+        title = f"  {now['title']}" if a.details and now else ""
+        print(f"- {x['date']} {x['start'] or 'all day':7} added {x['run']}, mail uid {x['mail_uid']}: {state}{title}")
+    print(f"{len(added)} events added: " + ", ".join(f"{v} {k}" for k, v in sorted(counts.items())))
+    return 0
 
 
 def summary(a, msgs, elapsed, tail, file=sys.stdout):
@@ -624,6 +681,8 @@ def main(argv=None):
         return cmd_template(cfg, a)
     if a.command == "calendar":
         return cmd_calendar(cfg, a)
+    if a.command == "log":
+        return cmd_log(cfg, a)
     try:
         window.parse_window(cfg["window"]["default"])
     except ValueError as e:

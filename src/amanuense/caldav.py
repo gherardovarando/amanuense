@@ -255,3 +255,15 @@ def _event(p):
     return {"start": start, "end": end, "all_day": all_day, "title": get("SUMMARY") or "(no title)",
             "place": get("LOCATION"), "status": get("STATUS").lower(), "notes": get("DESCRIPTION"),
             "repeats": "RRULE" in p}
+
+
+def fetch(c, base_url, uid):
+    """The event with this id (as parse_events gives it), or None if it is gone. Read-only (GET)."""
+    url = base_url.rstrip("/") + f"/{uid}.ics"
+    status, data, _ = _request(c, "GET", url)
+    if status in (404, 410):
+        return None
+    if status != 200:
+        raise CalendarError(f"GET {url}: HTTP {status}")
+    found = parse_events(data.decode("utf-8", "replace") if isinstance(data, bytes) else "")
+    return found[0] if found else None

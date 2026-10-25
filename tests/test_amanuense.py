@@ -581,6 +581,15 @@ def fake_caldav(tmp_path):
                           + cal("/dav/calendars/me/personal/", "Personal", "VEVENT")
                           + cal("/dav/calendars/me/tasks/", "Tasks", "VTODO"))
 
+        def do_GET(self):
+            if not self._auth():
+                return
+            data = store.get(self.path, "").encode()
+            self.send_response(200 if self.path in store else 404)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_REPORT(self):                            # every item of the calendar; the client filters by time
             from xml.sax.saxutils import escape
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
@@ -1005,3 +1014,47 @@ def test_calendar_events(fake_caldav, capsys):
     assert "Digest item" in capsys.readouterr().out
     with pytest.raises(SystemExit):
         cli.print_events(c, 7, ["Nope"])
+
+
+def test_run_log(fake_caldav, monkeypatch, tmp_path, capsys):
+    """The run log holds counts and ids, never text from mail; `log --events` follows the events added."""
+    from amanuense import events, runlog
+    import json as _json
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    cfg = config.load(None, {"calendar": {"server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"]},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/amanuense/"}},
+                      require_file=False)
+    msgs, _ = samples.results(cfg)
+    by_uid = {m["uid"]: m for m in msgs}
+    day = lambda d: f"{datetime.now() + timedelta(days=d):%Y-%m-%d}"
+    by_uid[4]["ai"]["event"] = {"title": "Exam review", "date": day(2), "start": None, "end": None, "place": "Room 1",
+                                "why": None}
+    events.add(cfg, msgs)
+    opts = triage.Options(*window.parse_window("24h"))
+    cli.log_run("digest", cfg, opts, msgs, 120.0, None, 1)
+    text = runlog.path().read_text()
+    assert oct(runlog.path().stat().st_mode & 0o777) == "0o600"
+    for m in msgs:                                   # nothing from the mail itself
+        for k in ("subject", "from"):
+            if m.get(k):
+                assert m[k] not in text
+        assert not (m.get("ai") or {}).get("summary") or m["ai"]["summary"] not in text
+    assert "Anna" not in text and "Exam review" not in text and "Room 1" not in text
+    e = _json.loads(text)
+    assert e["command"] == "digest" and e["replies_noted"] == 1 and len(e["calendar_events"]) == 2
+    assert {x["status"] for x in e["calendar_events"]} == {"added"}
+
+    a = cli.build_parser().parse_args(["log"])
+    cli.cmd_log(cfg, a)
+    assert "2 events (2 added)" in capsys.readouterr().out
+    store = fake_caldav["store"]
+    gone = next(k for k, v in store.items() if "Anna" in v)
+    del store[gone]                                  # he deleted one
+    k = next(iter(store))
+    store[k] = store[k].replace("STATUS:TENTATIVE", "STATUS:CONFIRMED")   # and confirmed the other
+    cli.cmd_log(cfg, cli.build_parser().parse_args(["log", "--events"]))
+    out = capsys.readouterr().out
+    assert "2 events added: 1 confirmed, 1 deleted" in out and "Exam review" not in out
+    cli.cmd_log(cfg, cli.build_parser().parse_args(["log", "--events", "--details"]))
+    assert "Event (sensitive email from" in capsys.readouterr().out   # uid 4 is sensitive: the calendar title says so
