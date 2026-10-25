@@ -1,11 +1,6 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-dark.png">
-    <img src="docs/logo/logo.png" alt="amanuense: a scribe, shaped like a keyhole, writing in a closed room" width="420">
-  </picture>
-</p>
-
 # amanuense
+
+![amanuense logo: a scribe, shaped like a keyhole, writing in a closed room](docs/logo/icon-128.png)
 
 A private secretary for your inbox. A small language model running on your own machine reads your recent mail, writes a daily digest with proposed to-dos, and can tag each message with its category in the mailbox. Your mail never leaves the machine.
 
