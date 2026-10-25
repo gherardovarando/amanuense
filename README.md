@@ -25,7 +25,7 @@ A private secretary for your inbox. A small language model running on your own m
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **Sensitive mail.** Mail about health, personal matters, HR, students' circumstances, confidential reviews or credentials is marked sensitive. Its task names only the sender, and tagging sets a `sensitive` keyword in the mailbox, so other tools and agents can leave it closed.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, keep it. If they have no `screened` keyword yet, the model still checks them for [sensitive material](#sensitive-mail). Mail that already has `screened` was checked by an earlier run and is skipped, unless `--retag`. `digest --tag` does both in one run.
-- **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
+- **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. It can also read a JSON output back, from a file or a pipe (see [Templates](#templates)). The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense log`** shows the past runs from a log of counts and ids, or what became of the events it added (see [Run log](#run-log)).
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
 - **`amanuense calendar`** lists your CalDAV calendars, lists the events of the coming days (`calendar events`), or puts the last digest in one (see [Calendar](#calendar)).
@@ -95,6 +95,7 @@ amanuense digest -t long                 # every message, grouped by category
 amanuense digest -t tiny -o -            # a glance, printed
 amanuense digest --urgent-within 1d      # only same/next-day deadlines count as urgent
 amanuense render -t long                 # the last run again, in full, next to the usual file
+amanuense render -t todo -o -            # the last run's to-dos, printed (pipe it anywhere)
 amanuense template list                  # the layouts you can use
 amanuense template preview counts        # try a layout on made-up results
 amanuense tag --dry-run -v               # decide tags without writing them
@@ -159,6 +160,17 @@ amanuense template copy brief mine        # -> ~/.config/amanuense/templates/min
 amanuense template preview mine           # made-up results: no mail, no model, instant
 amanuense render -t mine                  # the last real run, in your layout
 ```
+
+**Pipes.** `-o -` prints any layout, so you can pipe it. `render FILE` reads a JSON output back (`-` = stdin) and prints it in any layout. Together they let you filter the digest with [jq](https://jqlang.org) without calling the model again:
+
+```sh
+amanuense render -t json -o - \
+  | jq '.messages |= map(select(.category != "info"))' \
+  | amanuense render - -t brief             # the last run without one category
+amanuense render week.json -t long          # a JSON output kept from an earlier run
+```
+
+With a FILE, `render` prints unless you give `-o`, so it never overwrites the usual digest. It needs no config: categories it doesn't know are added at the end. To keep every run's JSON, add an `[[outputs]]` entry with `template = "json"` and `{date}` in its path.
 
 A template in `~/.config/amanuense/templates/` overrides a shipped one with the same name. The file extension before `.j2` (`.md`, `.html`, `.txt`) is the extension of the output file. `_macros.j2` has the shared pieces (a to-do line, a waiting line); `{% import "_macros.j2" as x %}` and `{{ x.todo(m) }}`.
 

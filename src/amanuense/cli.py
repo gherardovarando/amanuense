@@ -86,7 +86,12 @@ def build_parser():
 
     r = sub.add_parser("render", help="write the last digest again, e.g. with --full",
                        description="Render the results of the last digest run again, without reading mail or "
-                                   "calling the model. Writes to the configured output path unless -o.")
+                                   "calling the model. Writes to the configured output path unless -o. "
+                                   "With FILE, render that JSON output (-t json) instead, to stdout unless -o; '-' reads stdin, "
+                                   "so you can filter with jq: amanuense render -t json -o - | jq ... | "
+                                   "amanuense render -")
+    r.add_argument("file", nargs="?", metavar="FILE",
+                   help="a JSON output of amanuense (-t json) to render instead of the last run; '-' = stdin")
     output_args(r)
     r.add_argument("--test", action="store_true", help=argparse.SUPPRESS)
 
@@ -295,8 +300,8 @@ def save_results(opts, elapsed, task_error, msgs, waits):
 def outputs(cfg, a):
     """(template, path) pairs to write. -t or -o on the command line mean just that one output."""
     main = (cfg["output"]["template"], cfg["output"]["path"])
-    if getattr(a, "test", False) and not getattr(a, "output", None):
-        return [(main[0], "-")]  # made-up mail: print it
+    if (getattr(a, "test", False) or getattr(a, "file", None)) and not getattr(a, "output", None):
+        return [(main[0], "-")]  # made-up mail, or a JSON file given: print it, never overwrite the digest
     if getattr(a, "template", None) and not getattr(a, "output", None) and main[1] != "-" and "{template}" not in main[1]:
         # another layout of the same run goes next to the usual file, e.g. mail-2026-10-08-long.md
         p = Path(main[1])
@@ -377,11 +382,21 @@ def previous_verdicts():
     return {(m.get("folder"), m.get("uid"), m.get("messageId")): m["ai"] for m in data.get("msgs", []) if m.get("ai")}
 
 
-def load_results():
-    try:
-        data = json.loads(results_file().read_text())
-    except OSError:
-        sys.exit("amanuense: no saved digest yet; run `amanuense digest` first")
+def load_results(cfg=None, file=None):
+    """The last run's saved results, or with file the JSON output in that file ('-' = stdin)."""
+    if file:
+        try:
+            text = sys.stdin.read() if file == "-" else config.expand(file).read_text()
+            data = render.from_json(text, cfg)
+        except OSError as e:
+            sys.exit(f"amanuense: {file}: {e.strerror}")
+        except (ValueError, KeyError, TypeError, IndexError) as e:
+            sys.exit(f"amanuense: {'stdin' if file == '-' else file}: not the JSON output of amanuense ({e})")
+    else:
+        try:
+            data = json.loads(results_file().read_text())
+        except OSError:
+            sys.exit("amanuense: no saved digest yet; run `amanuense digest` first")
     opts = Options(start=datetime.fromisoformat(data["start"]), end=datetime.fromisoformat(data["end"]),
                    unread=data["unread"], tag=data["tag"], dry_run=data["dry_run"], problems=data["problems"])
     return opts, data
@@ -434,7 +449,7 @@ def print_events(c, days, names=None):
 
 
 def cmd_render(cfg, a):
-    opts, data = load_results()
+    opts, data = load_results(cfg, a.file)
     out = write_output(cfg, a, opts, data["elapsed"], data["task_error"], data["msgs"], data["waits"])
     if not a.quiet and out != "stdout":
         print(f"-> {out}")
@@ -671,7 +686,8 @@ def main(argv=None):
         print(f"Edit the files in {d}" if written else f"{d} already has a config (use --force to overwrite)")
         return 0
     cfg = config.load(a.config, overrides(a),
-                      require_file=a.command not in ("config", "category", "template") and not getattr(a, "test", False))
+                      require_file=a.command not in ("config", "category", "template") and not getattr(a, "test", False)
+                      and not getattr(a, "file", None))  # rendering a JSON file needs no mail and no model
     if a.command == "config":
         print(json.dumps({k: v for k, v in cfg.items() if k != "categories_prompt"}, indent=2, ensure_ascii=False))
         return 0

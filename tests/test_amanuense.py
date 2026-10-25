@@ -445,6 +445,37 @@ def test_render_saved_results(monkeypatch, tmp_path):
     assert "summary 6" not in out.read_text()
 
 
+def test_render_json_round_trip(monkeypatch, tmp_path, capsys):
+    """render -t json, filtered (as with jq), read back with `render FILE` or `render -`."""
+    import io, json
+    cfg = config.load(None, {}, require_file=False)
+    msgs, waits = samples.results(cfg)
+    opts = triage.Options(*window.parse_window("24h"))
+    cli.save_results(opts, 60, None, msgs, waits)
+    for name in ("long", "page", "todo"):
+        assert cli.main(["render", "--test", "-t", name]) == 0
+        direct = capsys.readouterr().out
+        assert cli.main(["render", "--test", "-t", "json"]) == 0
+        f = tmp_path / "run.json"
+        f.write_text(capsys.readouterr().out)
+        assert cli.main(["render", str(f), "-t", name]) == 0     # a FILE prints, never overwrites the digest
+        assert capsys.readouterr().out == direct, name
+    data = json.loads(f.read_text())
+    gone = data["messages"][0]["subject"]
+    data["messages"] = data["messages"][1:]                     # what a jq filter does
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(data)))
+    assert cli.main(["render", "-", "-t", "long"]) == 0
+    out = capsys.readouterr().out
+    assert gone not in out and data["messages"][0]["subject"] in out
+    data["messages"][0]["category"] = "some other category"   # from another config: kept, not lost
+    f.write_text(json.dumps(data))
+    assert cli.main(["render", str(f), "-t", "long"]) == 0
+    assert "some other category" in capsys.readouterr().out
+    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+    with pytest.raises(SystemExit, match="not the JSON output"):
+        cli.main(["render", "-"])
+
+
 def test_shipped_templates_render():
     cfg = config.load(None, {}, require_file=False)
     msgs, waits = samples.results(cfg)
