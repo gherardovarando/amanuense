@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-dark.svg">
-    <img src="docs/logo/logo.svg" alt="amanuense: a scribe, shaped like a keyhole, writing in a closed room" width="420">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-dark.png">
+    <img src="docs/logo/logo.png" alt="amanuense: a scribe, shaped like a keyhole, writing in a closed room" width="420">
   </picture>
 </p>
 
