@@ -7,6 +7,7 @@ name = "amanuense"
 version = "0.3.0"
 description = "Private mail digest and tagging with a local language model"
 readme = "README.md"
+license = {text = "BSD-3-Clause"}
 requires-python = ">=3.11"
 dependencies = ["mcp>=1.0", "jinja2>=3.1"]
 

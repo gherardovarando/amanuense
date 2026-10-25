@@ -386,3 +386,7 @@ This tool was written by an AI coding agent: **Claude Opus 5.5** (model ID `clau
 The agent wrote the code and tests and tested them only against made-up emails. Runs on real mail were checked by the owner, since the agent never sees their content.
 
 The logo was drawn by the same agent, by hand in SVG: a scribe shaped like a keyhole, writing in a closed room. The name is set in Fira Mono Medium (SIL Open Font License), turned into outlines so it shows the same everywhere. The files are in `docs/logo/`.
+
+## License
+
+BSD 3-Clause, see [LICENSE](LICENSE). The logo in `docs/logo/` is under the same licence; the font of its name, Fira Mono, is under the SIL Open Font License.
