@@ -20,7 +20,7 @@ A private secretary for your inbox. A small language model running on your own m
 
   Small models call too much urgent, so a to-do whose deadline is more than three days away (`output.urgent_within`) is never shown as urgent.
 
-  If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)).
+  Taskwarrior is optional. If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)). Without it you get the same digest, with the same to-dos.
 - **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
 - **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
 - **Sensitive mail.** Mail about health, personal matters, HR, students' circumstances, confidential reviews or credentials is marked sensitive. Its task names only the sender, and tagging sets a `sensitive` keyword in the mailbox, so other tools and agents can leave it closed.
@@ -51,6 +51,7 @@ A private secretary for your inbox. A small language model running on your own m
 - Python 3.11 or later (installs `mcp` and `jinja2`)
 - A model server. With Ollama, `qwen3:4b-instruct` (about 2.5 GB) works on a 4-core CPU without a GPU, at roughly 30 seconds per email.
 - [imap-mcp-server](https://github.com/nikolausm/imap-mcp-server) with your IMAP account configured in it
+- Optional: [Taskwarrior](https://taskwarrior.org) 2.6 or 3, for tasks; a CalDAV server, for events and the phone reminder. Without them you still get the digest.
 
 ## Install
 
@@ -340,7 +341,7 @@ Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config o
 
 ## Taskwarrior
 
-When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered. It works with Taskwarrior 2.6 and 3 (tested with 3.5).
+When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered. It works with Taskwarrior 2.6 and 3 (tested with 3.5). Without the `task` command, or with `enabled = false`, this step is skipped and the rest of the run is the same.
 
 - **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
 - **Description:** the to-do. **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
