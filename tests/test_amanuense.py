@@ -741,8 +741,9 @@ def test_tasks_same_topic(monkeypatch, taskdb):
     assert "same thread: " in first["annotations"][1]["description"] and "😀" in first["annotations"][1]["description"]
     letter = next(t for t in exported if "uid 6," in t["annotations"][0]["description"])
     assert letter["status"] == "pending" and "earlier completed task: Old letter" in letter["annotations"][-1]["description"]
-    data = (Path(os.environ["TASKDATA"]) / "pending.data").read_bytes()
-    data.decode("utf-8")                                   # no CESU-8 surrogates from the emoji
+    data = Path(os.environ["TASKDATA"]) / "pending.data"  # Taskwarrior 2 only; 3 keeps an SQLite file
+    if data.exists():
+        data.read_bytes().decode("utf-8")                  # no CESU-8 surrogates from the emoji
 
 
 def test_task_project_rules_and_length():

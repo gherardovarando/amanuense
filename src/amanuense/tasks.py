@@ -228,7 +228,7 @@ def _add(cfg, todo, make, dry_run, group=False):
             ids[m["messageId"]] = target
         uids.add(key)
     if not dry_run:
-        if new:  # raw UTF-8: Taskwarrior 2.6 stores \ud83d-style escapes as invalid bytes
+        if new:  # raw UTF-8: Taskwarrior 2.6 stores \ud83d-style escapes as invalid bytes (3 doesn't mind)
             _task(cfg, "import", "-", stdin=json.dumps(new, ensure_ascii=False))
         for uuid_, text in notes:
             _task(cfg, uuid_, "annotate", "--", f"same thread: {text}")
