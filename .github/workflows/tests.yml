@@ -1,0 +1,37 @@
+# Run the tests on every push and pull request. They use made-up mail only:
+# no mailbox, no model server and no secrets are needed.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+        taskwarrior: [true]
+        include:
+          # Taskwarrior is optional: check that everything else works without it.
+          - python: "3.12"
+            taskwarrior: false
+    name: Python ${{ matrix.python }}${{ matrix.taskwarrior && ', Taskwarrior' || ', no Taskwarrior' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install Taskwarrior
+        if: matrix.taskwarrior
+        run: sudo apt-get update && sudo apt-get install -y taskwarrior && task --version
+      - name: Install amanuense
+        run: pip install '.[test]'
+      - name: Run the tests
+        run: python -m pytest -q -rs

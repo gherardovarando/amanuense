@@ -381,6 +381,8 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
 
 The tests use made-up messages and a stub model. They need neither a mail server nor a model server.
 
+GitHub Actions runs them on every push and pull request (`.github/workflows/tests.yml`): Python 3.11, 3.12 and 3.13 with Taskwarrior 2.6 (Ubuntu's package), and once without Taskwarrior. The Taskwarrior tests are skipped when the `task` command is missing. No secrets are needed.
+
 ## Limitations
 
 - Categories and to-dos are a small model's guesses. Treat the to-dos as proposals.
