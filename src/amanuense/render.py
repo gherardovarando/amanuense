@@ -5,7 +5,7 @@ from datetime import datetime
 
 
 _FIELDS = ("uid", "folder", "folder_label", "messageId", "from", "subject", "date", "attachments", "expires", "handled",
-           "outside_window", "skip", "error", "existing", "tag_actions", "task", "event_status")
+           "outside_window", "skip", "error", "existing", "tag_actions", "task", "earlier", "event_status")
 _WAIT_FIELDS = ("uid", "to", "subject", "date", "days", "task")
 
 

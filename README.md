@@ -245,9 +245,9 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
   [taskwarrior.projects]
   conf2026 = 'CONF ?2026|conf2026@'
   ```
-- **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. If the matching task is completed or deleted, a new task is made and a note mentions the earlier one. Subjects shorter than 12 characters are too generic and never group.
+- **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. Subjects shorter than 12 characters are too generic and never group.
 - **One task per item:** an email that names the same reference as a pending task, such as a manuscript ID, also becomes a note ("same item: …") on that task, even in a new thread. Reminders and "late review" notices from editorial systems often start a new thread.
-  - Where it looks: in the email's subject and its to-do; on pending tasks, in the description and in the subjects of the annotations. Completed and deleted tasks don't count, so a new round of the same manuscript gets a new task.
+  - Where it looks: in the email's subject and its to-do; on tasks, in the description and in the subjects of the annotations.
   - The setting is `taskwarrior.references`, a list of regular expressions (case-sensitive). The default list covers:
 
     | Pattern | Matches | Example |
@@ -270,7 +270,8 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
     Use single quotes, so the backslashes stay as they are. `references = []` turns this off. A bad pattern stops the run with a clear error, before any mail is read.
 - **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
 - **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
-- **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead.
+- **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a pending task gets no new task: a note pointing to it is added to that task instead.
+- **Mail about a closed task:** if the thread, topic or reference matches only a task you completed or deleted, the email gets a new task, not a note on the closed one. Example: a review marked done by mistake, then a "late review" reminder. The new task has the tag `again` and a note: `An earlier task on this was marked done on 2026-10-20: 'Submit the review of …'. Check it was really done.` The digest says "task added (an earlier task was done)". The closed task is left as it is. A pending match always wins over a closed one.
 - **Your replies:** when you reply to the email of a pending task, the next digest adds a note to the task: `You replied on 2026-10-09 10:00 (amanuense, reply id <…>)`. The reply is found in the Sent folder by its In-Reply-To. amanuense never closes the task: you decide, or let another tool or agent close tasks from these notes. Follow-up tasks get no such note. Each reply is noted once.
 - **Changes to existing tasks:** only these notes. amanuense never completes, deletes or edits a task.
 - **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once, plus one `task annotate` per reply note.

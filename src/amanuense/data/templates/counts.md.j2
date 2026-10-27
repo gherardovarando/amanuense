@@ -19,7 +19,7 @@
 ## Deadlines
 
 {% for m in dated | sort(attribute="deadline") %}
-- {{ m.deadline | date("%a %d %b") }} — {{ m.category }}{{ " (urgent)" if m.priority == "high" }}{{ x.task_note(m.task) }}
+- {{ m.deadline | date("%a %d %b") }} — {{ m.category }}{{ " (urgent)" if m.priority == "high" }}{{ x.task_note(m.task, earlier=m.earlier) }}
 {% endfor %}
 {% endif %}
 {% if problems or task_error %}

@@ -779,6 +779,45 @@ def test_tasks_reply_in_thread_is_noted(monkeypatch, taskdb):
     assert taskdb.add_tasks(cfg, msgs) == 0 and next(m for m in msgs if m["uid"] == 3)["task"] == "exists"
 
 
+def test_tasks_about_a_closed_task(monkeypatch, taskdb):
+    """A reminder about a task marked done (or deleted) by mistake gets a new task that says so."""
+    import json
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    taskdb._task(cfg, "add", "Submit the review of ABC-D-26-01234")
+    taskdb._task(cfg, "/Submit/", "annotate", "msgid:<review@test>")
+    taskdb._task(cfg, "/Submit/", "done")
+    taskdb._task(cfg, "add", "Fill in the form for 1234567")
+    taskdb._task(cfg, "/Fill/", "delete")
+    taskdb._task(cfg, "add", "Accept or decline 7654321 now")
+    taskdb._task(cfg, "add", "Accept or decline 7654321 earlier")
+    taskdb._task(cfg, "/earlier/", "done")
+    box = FakeMailbox(cfg)
+    box.inbox[0]["inReplyTo"] = "<review@test>"                                  # thread of a done task
+    box.inbox[2]["subject"] = "Reminder: form for 1234567"                        # item of a deleted task
+    box.inbox[3]["subject"] = "Reminder: 7654321"                                 # a pending and a done task
+    msgs = run_fake(monkeypatch, cfg, box)
+    taskdb.add_tasks(cfg, msgs, dry_run=True)
+    by_uid = {m["uid"]: m for m in msgs}
+    assert by_uid[1]["task"] == "would add" and by_uid[1]["earlier"] == "completed"
+    taskdb.add_tasks(cfg, msgs)
+    assert [by_uid[u]["task"] for u in (1, 3, 4)] == ["added", "added", "noted"]
+    assert by_uid[3]["earlier"] == "deleted" and "earlier" not in by_uid[4]
+    exported = json.loads(taskdb._task(cfg, "export", read_only=True))
+    old = next(t for t in exported if t["description"].startswith("Submit the review"))
+    assert old["status"] == "completed" and len(old["annotations"]) == 1           # left alone
+    note = lambda t: (t.get("annotations") or [{"description": ""}])[0]["description"]
+    new = next(t for t in exported if "uid 1," in note(t))
+    assert new["status"] == "pending" and "again" in new["tags"]
+    assert "marked done on 20" in new["annotations"][-1]["description"]
+    form = next(t for t in exported if "uid 3," in note(t))
+    assert "marked deleted" in form["annotations"][-1]["description"] and "needed after all" in form["annotations"][-1]["description"]
+    pending = next(t for t in exported if t["description"].endswith(" now"))
+    assert note(pending).startswith("same item: ")
+    opts = triage.Options(*window.parse_window("24h"))
+    for name in ("long", "page"):
+        assert "task added (an earlier task was done)" in templates.render(cfg, name, msgs, opts, 1)
+
+
 def test_task_past_deadline():
     from amanuense import tasks
     cfg = config.load(None, require_file=False)
@@ -813,7 +852,9 @@ def test_tasks_same_topic(monkeypatch, taskdb):
     first = next(t for t in exported if "uid 1," in t["annotations"][0]["description"])
     assert "same thread: " in first["annotations"][1]["description"] and "😀" in first["annotations"][1]["description"]
     letter = next(t for t in exported if "uid 6," in t["annotations"][0]["description"])
-    assert letter["status"] == "pending" and "earlier completed task: Old letter" in letter["annotations"][-1]["description"]
+    assert letter["status"] == "pending" and "again" in letter["tags"] and by_uid[6]["earlier"] == "completed"
+    assert "An earlier task on this was marked done on " in letter["annotations"][-1]["description"]
+    assert "'Old letter'. Check it was really done." in letter["annotations"][-1]["description"]
     data = Path(os.environ["TASKDATA"]) / "pending.data"  # Taskwarrior 2 only; 3 keeps an SQLite file
     if data.exists():
         data.read_bytes().decode("utf-8")                  # no CESU-8 surrogates from the emoji
@@ -840,6 +881,7 @@ def test_tasks_same_reference(monkeypatch, taskdb):
     by_uid = {m["uid"]: m for m in msgs}
     assert by_uid[1]["task"] == "noted" and by_uid[3]["task"] == "noted"
     assert by_uid[4]["task"] == "added" and by_uid[6]["task"] == "noted"          # the earlier email in this run
+    assert by_uid[4]["earlier"] == "completed" and "earlier" not in by_uid[1]
     tasks = json.loads(taskdb._task(cfg, "status:pending", "export", read_only=True))
     hand = next(t for t in tasks if t["description"] == "Review ABC-D-26-01234")
     assert hand["annotations"][0]["description"].startswith("same item: ") and "uid 1," in hand["annotations"][0]["description"]

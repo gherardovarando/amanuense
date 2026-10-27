@@ -112,6 +112,7 @@ def item(m, cfg):
         "event": ai.get("event"),  # {title, date, start, end, place} or None
         "event_status": m.get("event_status"),  # "added", "exists", "would add", "failed" or None
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists" or None
+        "earlier": m.get("earlier"),  # "completed" or "deleted": the new task is about a task closed before
         "expires": expires, "days_left": (expires - datetime.now().astimezone()).days if expires else None,
     }
 

@@ -31,6 +31,7 @@ OLD_REF = re.compile(r"IMAP uid (\d+), account ([^,\s]+)(?:, folder ([^,]+))?")
 MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
 SUBJECT = re.compile(r"subject: (.+?)(?: \(amanuense, message-id|, msgid:|$)")
 PREFIX = re.compile(r"^(\s*(re|fwd?|rv|res|enc|aw|wg|tr)\s*:\s*|\s*\[[^\]]*\]\s*)+", re.I)
+CLOSED = ("completed", "deleted")
 MIN_SUBJECT = 12  # shorter subjects ("Re: question") are too generic to group mail by
 
 
@@ -85,32 +86,44 @@ def topic(subject):
 
 
 def _refs(cfg):
-    """({Message-ID: task uuid}, {(account, folder, uid)}, {topic: task}, {reference: pending task}) from
-    the annotations of all tasks; for topics a pending task wins over a completed or deleted one.
-    References come from the description and the subjects of pending tasks only.
+    """({Message-ID: task}, {(account, folder, uid)}, {topic: task}, {reference: task}) from the
+    annotations of all tasks, in any status; for topics and references a pending task wins over a
+    completed or deleted one. References come from the description and the annotated subjects.
     An annotation without a folder refers to the inbox. Free-text notes count too: one that
     names a configured folder (e.g. "/pkg uid 131 + corrected uid 132") covers every uid in it."""
     ids, uids, topics, refs = {}, set(), {}, {}
     inbox = cfg["mail"]["inbox"]
     account = cfg["mail"]["account"] or "default"
     folders = [f["name"] for f in cfg["folders"]]
+
+    def keep(table, keys, t):  # an open task wins
+        for k in keys:
+            if k and (k not in table or table[k]["status"] in CLOSED):
+                table[k] = t
+
     for t in json.loads(_task(cfg, "export", read_only=True) or "[]"):
         for a in t.get("annotations") or []:
             text = a.get("description", "")
             for i in MSGID.findall(text):
-                ids.setdefault(i, t["uuid"])
+                ids.setdefault(i, t)
             uids.update((acc, folder or inbox, int(uid)) for uid, acc, folder in OLD_REF.findall(text))
             for f in folders:
                 if f in text:
                     uids.update((account, f, int(u)) for u in re.findall(r"\buid (\d+)", text))
             for subj in SUBJECT.findall(text):
-                if (k := topic(subj)) and (k not in topics or topics[k]["status"] != "pending"):
-                    topics[k] = t
-                if t.get("status") == "pending":
-                    refs.update(dict.fromkeys(references(cfg, subj), t))
-        if t.get("status") == "pending":
-            refs.update(dict.fromkeys(references(cfg, t.get("description")), t))
+                keep(topics, [topic(subj)], t)
+                keep(refs, references(cfg, subj), t)
+        keep(refs, references(cfg, t.get("description")), t)
     return ids, uids, topics, refs
+
+
+def earlier_note(t):
+    """The note on a new task whose email is about a task already marked done or deleted."""
+    end = t.get("end") or t.get("modified") or ""
+    when = f" on {end[:4]}-{end[4:6]}-{end[6:8]}" if len(end) >= 8 else ""
+    check = "Check it was really done." if t["status"] == "completed" else "Check whether it is needed after all."
+    return f"An earlier task on this was marked {'done' if t['status'] == 'completed' else 'deleted'}{when}: " \
+           f"'{t['description'][:80]}'. {check}"
 
 
 def _utc(d):
@@ -205,10 +218,11 @@ def add_followups(cfg, waits, dry_run=False):
 
 
 def _add(cfg, todo, make, dry_run, group=False):
-    """With group, mail on the same topic (subject without Re:/Fwd:) as a pending task, or that names
-    the same reference (e.g. a manuscript ID, see taskwarrior.references) in its subject or to-do, or
-    does so as an earlier email in this run, becomes a note on that task; a completed or deleted task
-    on the topic is mentioned on the new one."""
+    """With group, mail in the thread of a task, on the same topic (subject without Re:/Fwd:), or that
+    names the same reference (e.g. a manuscript ID, see taskwarrior.references) in its subject or to-do,
+    becomes a note on that task if it is pending. If the matching task was marked done or deleted,
+    the mail gets a new task with the tag "again" and a note saying so: a reminder about something
+    closed by mistake is not lost. Sets m["earlier"] to that task's status."""
     if not todo:
         return 0
     ids, uids, topics, refs = _refs(cfg)
@@ -220,30 +234,31 @@ def _add(cfg, todo, make, dry_run, group=False):
             m["task"] = "exists"
             continue
         k = topic(m.get("subject")) if group else None
-        same = topics.get(k) if k else None
         named = references(cfg, m.get("subject"), (m.get("ai") or {}).get("todo")) if group else set()
-        item = next((refs[r] for r in sorted(named) if r in refs), None)
-        if m.get("inReplyTo") in ids or (same and same["status"] == "pending") or item:
-            # a reply in the thread of a task, the same topic or the same item: note it there, no new task
+        matches = []  # (task, label), most specific first
+        if m.get("inReplyTo") in ids:
+            matches.append((ids[m["inReplyTo"]], "same thread"))
+        matches += [(topics[k], "same thread")] if k in topics else []
+        matches += [(refs[r], "same item") for r in sorted(named) if r in refs]
+        pending = next(((t, label) for t, label in matches if t["status"] not in CLOSED), None)
+        closed = next((t for t, _ in matches if t["status"] in CLOSED), None)
+        if pending:  # still open (pending or waiting): note it there, no new task
             m["task"] = "would note" if dry_run else "noted"
-            if m.get("inReplyTo") in ids or (same and same["status"] == "pending"):
-                target, label = ids.get(m.get("inReplyTo")) or same["uuid"], "same thread"
-            else:
-                target, label = item["uuid"], "same item"
-            notes.append((target, f"{label}: {make(cfg, m)['annotations'][0]['description']}"))
+            t, label = pending
+            notes.append((t["uuid"], f"{label}: {make(cfg, m)['annotations'][0]['description']}"))
         else:
             m["task"] = "would add" if dry_run else "added"
             t = make(cfg, m)
-            if same:  # done or dropped earlier: the new task says so, the old one is left alone
-                t["annotations"].append({"entry": t["entry"], "description":
-                    f"Same subject as an earlier {same['status']} task: {same['description'][:80]}"})
+            if closed:  # done or dropped earlier: a new task says so; the old one is left alone
+                m["earlier"] = closed["status"]
+                t["tags"].append("again")
+                t["annotations"].append({"entry": t["entry"], "description": earlier_note(closed)})
             new.append(t)
-            target = t["uuid"]
             if k:
                 topics[k] = t
             refs.update(dict.fromkeys(named, t))
         if m.get("messageId"):  # the same email again later in this run (another folder) is a duplicate
-            ids[m["messageId"]] = target
+            ids[m["messageId"]] = t
         uids.add(key)
     if not dry_run:
         if new:  # raw UTF-8: Taskwarrior 2.6 stores \ud83d-style escapes as invalid bytes (3 doesn't mind)
