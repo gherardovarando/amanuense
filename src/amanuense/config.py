@@ -49,7 +49,12 @@ DEFAULTS = {
                  "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
     "events": {"url": "", "minutes": 60},  # CalDAV calendar for events from mail ("" = only listed in the digest)
-    "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {}},
+    "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {},
+                    # references that name one item (a manuscript, a case): mail that names the same one as a
+                    # pending task, in any thread, is noted on that task instead of making a new one
+                    "references": [r"\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b",          # Editorial Manager: ABC-D-26-01234
+                                   r"\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b",  # ScholarOne: ABC-2026-0123.R1
+                                   r"(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])"]},       # a long number: 1234567
 }
 
 # Settings that moved to the categories file.
@@ -125,6 +130,11 @@ def load(path=None, overrides=None, require_file=True):
             window.parse_duration(cfg["waiting"][key])
         except ValueError as e:
             raise SystemExit(f"config: waiting.{key}: {e}") from None
+    for pattern in cfg["taskwarrior"]["references"]:
+        try:
+            re.compile(pattern)
+        except (re.error, TypeError) as e:
+            raise SystemExit(f"config: taskwarrior.references: bad pattern {pattern!r}: {e}")
     for name, pattern in cfg["taskwarrior"]["projects"].items():
         try:
             re.compile(pattern)

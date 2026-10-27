@@ -795,6 +795,34 @@ def test_tasks_same_topic(monkeypatch, taskdb):
         data.read_bytes().decode("utf-8")                  # no CESU-8 surrogates from the emoji
 
 
+def test_tasks_same_reference(monkeypatch, taskdb):
+    """A reminder in a new thread that names the manuscript of a pending task is noted there."""
+    import json
+    cfg = config.load(None, {"mail": {"account": "work"}}, require_file=False)
+    taskdb._task(cfg, "add", "Review ABC-D-26-01234")                             # made by hand
+    taskdb._task(cfg, "add", "Accept or decline")
+    taskdb._task(cfg, "2", "annotate", "IMAP uid 900, account work, subject: Invitation to review manuscript 1234567, msgid:<inv@test>")
+    taskdb._task(cfg, "add", "Old review of 7777777")
+    taskdb._task(cfg, "3", "done")                                               # done: a new task is fine
+    box = FakeMailbox(cfg)
+    box.inbox[0]["subject"] = "Late review: ABC-D-26-01234"
+    box.inbox[2]["subject"] = "Reminder: manuscript 1234567 awaits your answer"
+    box.inbox[3]["subject"] = "New submission XYZ-D-26-0001, as 7777777"         # 7777777's task is done
+    msgs = run_fake(monkeypatch, cfg, box)
+    for m in msgs:
+        if m["uid"] == 6 and "ai" in m:
+            m["ai"]["todo"] = "Submit the review of XYZ-D-26-0001"                # same item, named in the to-do
+    taskdb.add_tasks(cfg, msgs)
+    by_uid = {m["uid"]: m for m in msgs}
+    assert by_uid[1]["task"] == "noted" and by_uid[3]["task"] == "noted"
+    assert by_uid[4]["task"] == "added" and by_uid[6]["task"] == "noted"          # the earlier email in this run
+    tasks = json.loads(taskdb._task(cfg, "status:pending", "export", read_only=True))
+    hand = next(t for t in tasks if t["description"] == "Review ABC-D-26-01234")
+    assert hand["annotations"][0]["description"].startswith("same item: ") and "uid 1," in hand["annotations"][0]["description"]
+    assert taskdb.references(cfg, "Invoice 2026-10-27, 12:30, 1.234.567 EUR") == set()
+    assert taskdb.references(cfg, "Ref. ABC-2026-0123.R1 and 1234567") == {"ABC-2026-0123.R1", "1234567"}
+
+
 def test_task_project_rules_and_length():
     from amanuense import tasks
     cfg = config.load(None, {"taskwarrior": {"projects": {"conf": r"conf2026@", "course": r"DUDA ENTREGA"}}},

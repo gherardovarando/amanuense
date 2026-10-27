@@ -68,8 +68,14 @@ def _task(cfg, *args, stdin=None, read_only=False):
 
 def existing_refs(cfg):
     """Message-IDs and (account, folder, uid) triples that already have a task, in any status."""
-    ids, uids, _ = _refs(cfg)
+    ids, uids, _, _ = _refs(cfg)
     return set(ids), uids
+
+
+def references(cfg, *texts):
+    """The references (taskwarrior.references patterns, e.g. a manuscript ID) named in the texts."""
+    text = "\n".join(t for t in texts if t)
+    return {r.upper() for p in cfg["taskwarrior"]["references"] for r in re.findall(p, text)}
 
 
 def topic(subject):
@@ -79,11 +85,12 @@ def topic(subject):
 
 
 def _refs(cfg):
-    """({Message-ID: task uuid}, {(account, folder, uid)}, {topic: task}) from the annotations of all
-    tasks; for topics a pending task wins over a completed or deleted one.
+    """({Message-ID: task uuid}, {(account, folder, uid)}, {topic: task}, {reference: pending task}) from
+    the annotations of all tasks; for topics a pending task wins over a completed or deleted one.
+    References come from the description and the subjects of pending tasks only.
     An annotation without a folder refers to the inbox. Free-text notes count too: one that
     names a configured folder (e.g. "/pkg uid 131 + corrected uid 132") covers every uid in it."""
-    ids, uids, topics = {}, set(), {}
+    ids, uids, topics, refs = {}, set(), {}, {}
     inbox = cfg["mail"]["inbox"]
     account = cfg["mail"]["account"] or "default"
     folders = [f["name"] for f in cfg["folders"]]
@@ -99,7 +106,11 @@ def _refs(cfg):
             for subj in SUBJECT.findall(text):
                 if (k := topic(subj)) and (k not in topics or topics[k]["status"] != "pending"):
                     topics[k] = t
-    return ids, uids, topics
+                if t.get("status") == "pending":
+                    refs.update(dict.fromkeys(references(cfg, subj), t))
+        if t.get("status") == "pending":
+            refs.update(dict.fromkeys(references(cfg, t.get("description")), t))
+    return ids, uids, topics, refs
 
 
 def _utc(d):
@@ -194,12 +205,13 @@ def add_followups(cfg, waits, dry_run=False):
 
 
 def _add(cfg, todo, make, dry_run, group=False):
-    """With group, mail on the same topic (subject without Re:/Fwd:) as a pending task, or as an
-    earlier email in this run, becomes a note on that task; a completed or deleted task on the
-    topic is mentioned on the new one."""
+    """With group, mail on the same topic (subject without Re:/Fwd:) as a pending task, or that names
+    the same reference (e.g. a manuscript ID, see taskwarrior.references) in its subject or to-do, or
+    does so as an earlier email in this run, becomes a note on that task; a completed or deleted task
+    on the topic is mentioned on the new one."""
     if not todo:
         return 0
-    ids, uids, topics = _refs(cfg)
+    ids, uids, topics, refs = _refs(cfg)
     account = cfg["mail"]["account"] or "default"
     new, notes = [], []
     for m in todo:
@@ -209,11 +221,16 @@ def _add(cfg, todo, make, dry_run, group=False):
             continue
         k = topic(m.get("subject")) if group else None
         same = topics.get(k) if k else None
-        if m.get("inReplyTo") in ids or (same and same["status"] == "pending"):
-            # a reply in the thread of a task, or the same topic: note it there, no new task
+        named = references(cfg, m.get("subject"), (m.get("ai") or {}).get("todo")) if group else set()
+        item = next((refs[r] for r in sorted(named) if r in refs), None)
+        if m.get("inReplyTo") in ids or (same and same["status"] == "pending") or item:
+            # a reply in the thread of a task, the same topic or the same item: note it there, no new task
             m["task"] = "would note" if dry_run else "noted"
-            target = ids.get(m.get("inReplyTo")) or same["uuid"]
-            notes.append((target, make(cfg, m)["annotations"][0]["description"]))
+            if m.get("inReplyTo") in ids or (same and same["status"] == "pending"):
+                target, label = ids.get(m.get("inReplyTo")) or same["uuid"], "same thread"
+            else:
+                target, label = item["uuid"], "same item"
+            notes.append((target, f"{label}: {make(cfg, m)['annotations'][0]['description']}"))
         else:
             m["task"] = "would add" if dry_run else "added"
             t = make(cfg, m)
@@ -224,6 +241,7 @@ def _add(cfg, todo, make, dry_run, group=False):
             target = t["uuid"]
             if k:
                 topics[k] = t
+            refs.update(dict.fromkeys(named, t))
         if m.get("messageId"):  # the same email again later in this run (another folder) is a duplicate
             ids[m["messageId"]] = target
         uids.add(key)
@@ -231,7 +249,7 @@ def _add(cfg, todo, make, dry_run, group=False):
         if new:  # raw UTF-8: Taskwarrior 2.6 stores \ud83d-style escapes as invalid bytes (3 doesn't mind)
             _task(cfg, "import", "-", stdin=json.dumps(new, ensure_ascii=False))
         for uuid_, text in notes:
-            _task(cfg, uuid_, "annotate", "--", f"same thread: {text}")
+            _task(cfg, uuid_, "annotate", "--", text)
     return len(new)
 
 
