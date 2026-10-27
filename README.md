@@ -356,7 +356,8 @@ Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config o
 When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered. It works with Taskwarrior 2.6 and 3 (tested with 3.5). Without the `task` command, or with `enabled = false`, this step is skipped and the rest of the run is the same.
 
 - **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
-- **Description:** the to-do. **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
+- **Description:** the to-do.
+- **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
 - **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else the first `[taskwarrior.projects]` rule that matches, else `taskwarrior.project`, else none. A rule is a name and a regular expression, matched case-insensitively against the subject, sender, recipients and folder:
   ```toml
   [taskwarrior.projects]
