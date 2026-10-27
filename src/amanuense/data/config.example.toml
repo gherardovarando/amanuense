@@ -51,6 +51,8 @@ num_ctx = 4096                      # context size (Ollama)
 temperature = 0.0
 timeout = 600                       # seconds per email
 # think = false                     # Ollama: turn off "thinking" for reasoning models such as qwen3:4b
+# prompt_file = "prompt.md"        # your own instructions for the model (`amanuense prompt copy`);
+#                                   # used if the file exists, else the built-in ones
 
 [output]
 # Layout: brief, long, tiny, todo, counts, oneline, page (HTML), json, or your own template

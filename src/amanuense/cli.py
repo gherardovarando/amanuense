@@ -8,9 +8,10 @@ import sys
 import time
 import urllib.request
 from datetime import datetime, timedelta
+from importlib import resources
 from pathlib import Path
 
-from . import __version__, caldav, categories, config, events, render, runlog, samples, tasks, templates, waiting, window
+from . import __version__, caldav, categories, config, events, model, render, runlog, samples, tasks, templates, waiting, window
 from .mail import Mailbox, MailError
 from .samples import FakeMailbox
 from .triage import Options, run
@@ -107,6 +108,15 @@ def build_parser():
     i = sub.add_parser("init", help="create a config and a categories file to edit")
     i.add_argument("--force", action="store_true", help="overwrite existing files")
     sub.add_parser("config", parents=[sel], help="print the effective configuration")
+
+    pp = sub.add_parser("prompt", help="show the model's instructions, or copy them to edit",
+                        description="The instructions the model gets for each email. A prompt.md next to the config "
+                                    "(model.prompt_file) replaces the built-in ones; the categories file is added after.")
+    psub = pp.add_subparsers(dest="action", required=True, metavar="ACTION")
+    ps = psub.add_parser("show", help="print the prompt in use, with {placeholders}")
+    ps.add_argument("--filled", action="store_true", help="as the model gets it: values filled in, categories added")
+    pc = psub.add_parser("copy", help="copy the built-in prompt to prompt.md next to the config, to edit it")
+    pc.add_argument("--force", action="store_true", help="overwrite an existing prompt.md")
 
     tp = sub.add_parser("template", help="list, show, copy or preview digest templates",
                         description="Digest layouts are Jinja templates. Shipped ones can be copied to "
@@ -455,6 +465,22 @@ def cmd_render(cfg, a):
         print(f"-> {out}")
 
 
+def cmd_prompt(cfg, a):
+    if a.action == "show":
+        sys.stdout.write(model.system_prompt(cfg) if a.filled else model.prompt_template(cfg))
+        if not a.quiet:
+            print(f"(from {cfg['model']['prompt_file'] or 'the built-in prompt'})", file=sys.stderr)
+    else:
+        dst = Path(cfg["model"]["prompt_file"]) if cfg["model"]["prompt_file"] else \
+            (Path(cfg["_path"]).parent if cfg["_path"] else config.config_dir()) / config.DEFAULTS["model"]["prompt_file"]
+        if dst.exists() and not a.force:
+            sys.exit(f"amanuense: {dst} exists (use --force to overwrite)")
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text((resources.files("amanuense") / "data" / "prompt.example.md").read_text())
+        print(f"wrote {dst}; edit it, and check it with `amanuense prompt show --filled`")
+    return 0
+
+
 def cmd_template(cfg, a):
     try:
         if a.action == "list":
@@ -573,6 +599,7 @@ def cmd_check(cfg, a):
         report("templates", False, str(e))
     report("categories", True, f"{cfg['categories_file']}: {', '.join(cfg['categories'])} "
                                f"(fallback {cfg['fallback']})")
+    report("prompt", True, cfg["model"]["prompt_file"] or "built-in (`amanuense prompt copy` to edit it)")
     try:
         start, end = window.parse_window(cfg["window"]["default"], last_run=window.read_last_run("digest"))
         report("window", True, f"{cfg['window']['default']}: {window.describe(start, end)}")
@@ -686,7 +713,7 @@ def main(argv=None):
         print(f"Edit the files in {d}" if written else f"{d} already has a config (use --force to overwrite)")
         return 0
     cfg = config.load(a.config, overrides(a),
-                      require_file=a.command not in ("config", "category", "template") and not getattr(a, "test", False)
+                      require_file=a.command not in ("config", "category", "template", "prompt") and not getattr(a, "test", False)
                       and not getattr(a, "file", None))  # rendering a JSON file needs no mail and no model
     if a.command == "config":
         print(json.dumps({k: v for k, v in cfg.items() if k != "categories_prompt"}, indent=2, ensure_ascii=False))
@@ -695,6 +722,8 @@ def main(argv=None):
         return cmd_category(cfg, a)
     if a.command == "template":
         return cmd_template(cfg, a)
+    if a.command == "prompt":
+        return cmd_prompt(cfg, a)
     if a.command == "calendar":
         return cmd_calendar(cfg, a)
     if a.command == "log":

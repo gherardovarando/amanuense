@@ -4,6 +4,7 @@ import os
 import re
 import urllib.request
 from datetime import datetime
+from pathlib import Path
 
 from .window import describe_duration
 
@@ -32,14 +33,27 @@ EVENT_FIELDS = {"event_date": "date", "event_place": "place", "event_time": "sta
                 "event_until": "end", "event_why": "why"}
 
 
+PLACEHOLDERS = ("owner", "languages", "categories", "urgent", "sensitive")
+
+
+def prompt_template(cfg):
+    """The instructions before the categories: model.prompt_file if set, else PROMPT. <!-- comments --> are dropped."""
+    if not cfg["model"].get("prompt_file"):
+        return PROMPT
+    text = re.sub(r"<!--.*?-->\n?", "", Path(cfg["model"]["prompt_file"]).read_text(), flags=re.S)
+    return text.strip("\n") + "\n\n"
+
+
 def system_prompt(cfg):
-    return PROMPT.format(
-        owner=cfg["owner"]["description"],
-        languages=cfg["owner"]["languages"],
-        categories=", ".join(cfg["categories"]),
-        urgent=describe_duration(cfg["output"]["urgent_within"]),
-        sensitive=cfg["sensitive"]["description"],
-    ) + cfg["categories_prompt"]
+    """The prompt with {owner}, {languages}, {categories}, {urgent} and {sensitive} filled in, then the
+    categories file. Other braces are left as they are."""
+    values = {"owner": cfg["owner"]["description"], "languages": cfg["owner"]["languages"],
+              "categories": ", ".join(cfg["categories"]), "urgent": describe_duration(cfg["output"]["urgent_within"]),
+              "sensitive": cfg["sensitive"]["description"]}
+    text = prompt_template(cfg)
+    for k in PLACEHOLDERS:
+        text = text.replace("{" + k + "}", values[k])
+    return text + cfg["categories_prompt"]
 
 
 def schema(categories):

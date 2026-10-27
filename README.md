@@ -98,6 +98,7 @@ amanuense render -t long                 # the last run again, in full, next to 
 amanuense render -t todo -o -            # the last run's to-dos, printed (pipe it anywhere)
 amanuense template list                  # the layouts you can use
 amanuense template preview counts        # try a layout on made-up results
+amanuense prompt show --filled           # the instructions the model gets for each email
 amanuense tag --dry-run -v               # decide tags without writing them
 amanuense tag --todo-keyword '$label4'   # tag, and mark to-dos with Thunderbird's "To Do" tag
 amanuense tag -w 2w --retag              # re-triage two weeks and replace category tags
@@ -262,6 +263,25 @@ A small local model gets better mostly through its categories file, so it pays t
 3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
 
 The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
+
+## The model's instructions
+
+For each email, the model gets a fixed set of instructions (the prompt), then your categories file, then the email. The prompt says which JSON fields to answer with and how: when an email needs action, how to word the to-do, what counts as urgent, sensitive or an event.
+
+Most changes belong in the categories file: an example or a rule there is usually enough. To change the prompt itself:
+
+```sh
+amanuense prompt show                    # the prompt in use, with {placeholders}
+amanuense prompt show --filled           # exactly what the model gets, categories included
+amanuense prompt copy                    # -> ~/.config/amanuense/prompt.md, a copy of the built-in prompt
+```
+
+- If `prompt.md` exists next to the config, it replaces the built-in prompt. Another file can be set with `model.prompt_file`. Without the file, the built-in prompt is used, and you get its improvements with each update.
+- Placeholders filled in from the config: `{owner}` and `{languages}` (`owner.description`, `owner.languages`), `{categories}` (the category names), `{urgent}` (`output.urgent_within`) and `{sensitive}` (`sensitive.description`). Other braces are left as they are.
+- `<!-- comments -->` are not sent to the model.
+- Keep the JSON field names: amanuense reads them, and the model has to answer with them anyway. You can change everything else, for instance how the to-dos are worded or what counts as needing action.
+- The built-in prompt is also in the repository, as `src/amanuense/data/prompt.example.md`. A test keeps the two the same.
+- Check a change on made-up emails before a real run: `amanuense digest --test` uses made-up emails with your prompt and the model.
 
 ## Events from mail
 

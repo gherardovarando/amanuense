@@ -119,6 +119,30 @@ def test_category_edit(tmp_path):
         categories.add(f, "two words")
 
 
+def test_prompt_file(tmp_path, capsys):
+    """The shipped example is the built-in prompt; a prompt.md next to the config replaces it."""
+    from importlib import resources
+    cfg = config.load(None, {}, require_file=False)
+    assert cfg["model"]["prompt_file"] == "" and model.prompt_template(cfg) == model.PROMPT
+    example = resources.files("amanuense") / "data" / "prompt.example.md"
+    assert model.prompt_template({"model": {"prompt_file": str(example)}}) == model.PROMPT   # keep them the same
+    filled = model.system_prompt(cfg)
+    assert "{" not in filled.split("Reply ONLY")[0] and filled.endswith(cfg["categories_prompt"])
+    (tmp_path / "config.toml").write_text("")
+    (tmp_path / "categories.md").write_text((resources.files("amanuense") / "data" / "categories.example.md").read_text())
+    (tmp_path / "prompt.md").write_text("<!-- a note -->\nSort mail for {owner}; keep {braces}. Categories: {categories}.\n")
+    cfg = config.load(tmp_path / "config.toml")
+    assert cfg["model"]["prompt_file"] == str(tmp_path / "prompt.md")
+    filled = model.system_prompt(cfg)
+    assert filled.startswith("Sort mail for a university professor; keep {braces}. Categories: research,")
+    assert "a note" not in filled
+    with pytest.raises(SystemExit, match="exists"):                                      # never overwrites yours
+        cli.main(["-c", str(tmp_path / "config.toml"), "prompt", "copy"])
+    (tmp_path / "config.toml").write_text('[model]\nprompt_file = "mine.md"\n')
+    with pytest.raises(SystemExit, match="No prompt file"):
+        config.load(tmp_path / "config.toml")
+
+
 def test_tag_keywords(tmp_path):
     f = tmp_path / "config.toml"
     f.write_text("")

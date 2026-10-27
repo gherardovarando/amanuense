@@ -26,6 +26,7 @@ DEFAULTS = {
         "temperature": 0.0,
         "timeout": 600,
         "think": None,
+        "prompt_file": "prompt.md",  # your own instructions for the model, if this file exists; else the built-in ones
     },
     "output": {"template": "brief", "path": "~/amanuense/{date}.md", "max_fyi": 10, "urgent_within": "3d"},
     "outputs": [],  # [[outputs]] template, path: more files from the same run
@@ -121,6 +122,15 @@ def load(path=None, overrides=None, require_file=True):
     cfg["fallback"] = c.fallback
     cfg["keywords"] = {x.name: x.keyword for x in c.items}
     cfg["categories_prompt"] = c.prompt
+    prompt = expand(cfg["model"]["prompt_file"] or DEFAULTS["model"]["prompt_file"])
+    if not prompt.is_absolute():
+        prompt = path.parent / prompt
+    if prompt.exists():
+        cfg["model"]["prompt_file"] = str(prompt)
+    elif cfg["model"]["prompt_file"] != DEFAULTS["model"]["prompt_file"]:  # named on purpose but missing
+        raise SystemExit(f"No prompt file at {prompt}. Fix model.prompt_file, or remove it for the built-in prompt.")
+    else:
+        cfg["model"]["prompt_file"] = ""  # the built-in prompt
     try:
         window.parse_duration(cfg["output"]["urgent_within"])
     except ValueError as e:
