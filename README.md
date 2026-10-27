@@ -28,7 +28,7 @@ A private secretary for your inbox. A small language model running on your own m
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. It can also read a JSON output back, from a file or a pipe (see [Templates](#templates)). The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
 - **`amanuense log`** shows the past runs from a log of counts and ids, or what became of the events it added (see [Run log](#run-log)).
 - **`amanuense template`** lists, shows, copies and previews the digest templates.
-- **`amanuense calendar`** lists your CalDAV calendars, lists the events of the coming days (`calendar events`), or puts the last digest in one (see [Calendar](#calendar)).
+- **`amanuense calendar`** lists your CalDAV calendars, lists the events of the coming days (`calendar events`), or puts the last digest in one (see [The morning reminder](#the-morning-reminder-calendar)).
 - **`amanuense check`** tests the configuration, the model server and the mail server.
 - **`amanuense category`** lists the categories, adds one, or adds an example to one.
 - **`amanuense init`** creates a config file and a categories file for you to edit.
@@ -139,6 +139,184 @@ A cron job:
 
 Or a systemd user timer that runs the same command.
 
+## Categories
+
+The categories file (`~/.config/amanuense/categories.md`) is the only place where categories are defined. Each section with a one-word heading is a category:
+
+```markdown
+## teaching
+keyword: $label2
+
+Courses, students asking about a course, exams, grades.
+
+Examples:
+- A student asks whether topic 5 is in Tuesday's exam → teaching, needs action.
+
+## info
+keyword: none
+fallback: yes
+
+Newsletters, broadcasts, mailing lists, notifications.
+
+## Edge cases
+
+- Anything sent to a list with no personal request is info.
+```
+
+- **`keyword:`** is the IMAP keyword set when tagging. It defaults to the category name; `none` means messages in this category are never tagged.
+- **`fallback: yes`** marks the category used when the model's answer isn't a known category. Without it, the last category is the fallback.
+- **Headings with spaces**, like "Edge cases", are general notes.
+- **Everything else** goes into the model's instructions: descriptions, examples and notes, minus the `keyword:`/`fallback:` lines and `<!-- comments -->`.
+
+Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
+
+### Refining the categories every day
+
+A small local model gets better mostly through its categories file, so it pays to review its work daily, especially in the first weeks:
+
+1. After the morning run, go through the tasks it made: delete the duplicates, complete what was already handled, fix wrong categories, projects, due dates and vague descriptions. A word on why ("dup", "already done", "not my action") helps the next step.
+2. Once a day, ask a more capable agent or model to compare what amanuense produced with what you kept and changed, and to turn the recurring mistakes into fixes. Most fixes are a new example or rule in `categories.md`, for instance "a student's absence note → teaching, needs action". Some are a `[taskwarrior.projects]` rule or a skip rule in the config.
+3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
+
+The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
+
+## Extra folders
+
+```toml
+[[folders]]
+name = "Quarantine"
+label = "held mail"     # shown in the digest
+expires_days = 14       # the server deletes mail here after 14 days
+all = true              # read the whole folder whatever the window (default)
+max_messages = 100
+project = "conf2026"    # optional: Taskwarrior project for tasks from this folder
+```
+
+- **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
+- **Read by the model once:** a message dated before the window was read on an earlier day. The digest keeps the model's answer from the last run, so the message keeps its to-do without another model call. If there is no earlier answer but the message has the `screened` keyword, it is listed without being read again. Only a message never read before goes to the model. This saves about a minute per held message per run.
+- **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
+- **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
+- **Tasks:** only messages dated inside the window get tasks. Older ones were there on earlier runs, or before you started using amanuense, so they're listed in the digest but get no task: a backlog doesn't turn into stale tasks. The due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
+- **Same email in two folders** (sent to two of your addresses): it's triaged once, from the inbox or the first folder listed.
+- **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
+
+## Sensitive mail
+
+Some mail should be read only by you: health, sick leave, personal or family matters, HR and salaries, evaluations of people, students' personal circumstances, confidential reviews, ID numbers, bank details and passwords. amanuense marks such mail, so that an assistant with access to your mailbox or task list (for example an AI agent) knows not to open it without your say-so.
+
+- **How it decides:** the model answers one more question per email, "sensitive: yes or no", and is told to say yes when unsure. Mail matching your own rules is sensitive whatever the model says:
+  ```toml
+  [sensitive]
+  from = 'occupational-health@|hr@'
+  subject = 'confidential|sick leave'
+  # description = "..."   # what counts as sensitive, in the model's instructions
+  ```
+- **In the mailbox** (when tagging, `--tag` or `tag.enabled`):
+  - `sensitive` on sensitive mail (`sensitive.keyword`);
+  - `screened` on every email the model checked (`sensitive.screened`), sensitive or not. Mail without it hasn't been checked yet, for example mail that arrived after the run.
+
+  Both keywords are only ever added, never removed, even with `--retag`. Set either to `""` to turn it off.
+- **Tasks:** the description is only "Sensitive email from <sender>: needs action". The task gets the `sensitive` tag (`sensitive.task_tag`), and its annotation has `subject: (sensitive)` instead of the subject. A task list shown to someone else, or read by an agent, says nothing about the content.
+- **Digest:** your digest still shows the full to-do and summary, marked 🔒.
+
+A small model will miss some sensitive mail, so a reader should still check the sender and subject before opening anything. Mail skipped by the skip rules, and mail the model failed on, gets neither keyword.
+
+## Waiting for replies
+
+`digest` also lists mail you sent that is still waiting for an answer:
+
+1. It reads your Sent folder for the last `waiting.lookback` (default `30d`). Messages are grouped into conversations by subject, without Re:/Fwd:, and recipients. Only the latest message of each conversation counts, so a reminder you sent restarts the clock.
+2. A conversation is waiting when that latest message is older than `waiting.after` (default `7d`), and nobody it went to has written to you since. Replies are looked for in every folder except Trash, Spam and Drafts, so filed replies count. A message that replies to yours (In-Reply-To) counts too.
+3. The local model reads each of those messages and decides whether it asked for something, and what you're waiting for. Thank-you notes and FYIs drop out.
+
+With `waiting.tasks = true` (or `--waiting-tasks`), each one also becomes a Taskwarrior task: "Follow up: …", with the category, `email` and `followup` tags. The no-duplicates rule applies as for the other tasks.
+
+Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config or with `--waiting-after` and `--waiting-lookback`. These messages are checked on every run while they are within the lookback, so each costs a model call per run; `waiting.max_messages` caps that.
+
+## Taskwarrior
+
+When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered. It works with Taskwarrior 2.6 and 3 (tested with 3.5). Without the `task` command, or with `enabled = false`, this step is skipped and the rest of the run is the same.
+
+- **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
+- **Description:** the to-do.
+- **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
+- **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else the first `[taskwarrior.projects]` rule that matches, else `taskwarrior.project`, else none. A rule is a name and a regular expression, matched case-insensitively against the subject, sender, recipients and folder:
+  ```toml
+  [taskwarrior.projects]
+  conf2026 = 'CONF ?2026|conf2026@'
+  ```
+- **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. If the matching task is completed or deleted, a new task is made and a note mentions the earlier one. Subjects shorter than 12 characters are too generic and never group.
+- **One task per item:** an email that names the same reference as a pending task, such as a manuscript ID, also becomes a note ("same item: …") on that task, even in a new thread. Reminders and "late review" notices from editorial systems often start a new thread.
+  - Where it looks: in the email's subject and its to-do; on pending tasks, in the description and in the subjects of the annotations. Completed and deleted tasks don't count, so a new round of the same manuscript gets a new task.
+  - The setting is `taskwarrior.references`, a list of regular expressions (case-sensitive). The default list covers:
+
+    | Pattern | Matches | Example |
+    |---|---|---|
+    | `\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b` | Editorial Manager IDs | `ABC-D-26-01234` |
+    | `\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b` | ScholarOne IDs, with a revision | `ABC-2026-0123.R1` |
+    | `(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])` | numbers of 6 to 9 digits | `1234567` |
+
+    The last one skips digits that are part of a date, a time or an amount (`2026-10-27`, `12:30`, `1.234.567`).
+  - To add your own reference, for example a ticket number like `TICKET-1234`, write the whole list in the config, since your list replaces the default one:
+    ```toml
+    [taskwarrior]
+    references = [
+      '\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b',
+      '\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b',
+      '(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])',
+      '\bTICKET-\d+\b',
+    ]
+    ```
+    Use single quotes, so the backslashes stay as they are. `references = []` turns this off. A bad pattern stops the run with a clear error, before any mail is read.
+- **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
+- **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
+- **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead.
+- **Your replies:** when you reply to the email of a pending task, the next digest adds a note to the task: `You replied on 2026-10-09 10:00 (amanuense, reply id <…>)`. The reply is found in the Sent folder by its In-Reply-To. amanuense never closes the task: you decide, or let another tool or agent close tasks from these notes. Follow-up tasks get no such note. Each reply is noted once.
+- **Changes to existing tasks:** only these notes. amanuense never completes, deletes or edits a task.
+- **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once, plus one `task annotate` per reply note.
+- **Test and dry runs:** `--test` and `--dry-run` never add tasks; the digest shows "task (dry run)" instead. `amanuense check` reports whether Taskwarrior is on and how many tasks already point to emails.
+- **`tag` command:** `tag` never adds tasks.
+
+## Events from mail
+
+The model also says whether an email fixes an event you are expected to attend: a meeting, call, talk, class or defence on a stated date. It gives a title, the date, start and end times and a place when the email states them, and one sentence on what the event is for and your role in it.
+
+- **Not events:** a proposal still to be agreed ("can we meet on Tuesday?"), a deadline, or an event you are only told about.
+- **In the digest:** `brief`, `long` and `page` list the upcoming events, soonest first, each once. `counts` has the number, and the summary line says how many were found and added.
+- **In a calendar:** with `events.url` set to a CalDAV calendar, each upcoming event is added there:
+  ```toml
+  [events]
+  url = "https://dav.example.org/calendars/me/amanuense/"   # `amanuense calendar list` shows yours
+  minutes = 60      # length of an event whose end time the email doesn't say
+  ```
+  It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
+- **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
+- **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
+- **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
+- **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
+
+Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
+
+## The morning reminder (calendar)
+
+To get the digest on your phone without a new app or service, amanuense can put it in a CalDAV calendar that the phone already syncs (Nextcloud, ownCloud, SOGo, Baïkal, iCloud, Fastmail, a university's DAV server…). Each run creates or replaces one task due that morning (or an event, with `kind = "event"`):
+
+- title: the `oneline` template, counts only (`5 to-dos (2 urgent) · next deadline Sat 10 Oct (research)`), which is what a lock screen shows
+- notes: the `tiny` template
+- a reminder at that time, marked private; tick the task off once you've read it
+
+```toml
+[calendar]
+enabled = true
+server = "https://dav.example.org/"
+username = "me"
+password_file = "~/.config/amanuense/caldav-password"   # chmod 600
+```
+
+If the server's web address leads to a login page, give its DAV address instead (for SOGo, `https://host/SOGo/dav/`). Then `amanuense calendar list` shows the calendars; copy one's `url` into the section. `amanuense calendar put` sends the last digest right away, to try it. The password is read from `password_file` (refused if others can read it), from `password_command` (e.g. `pass show caldav`), or from `$AMANUENSE_CALDAV_PASSWORD`. It is never stored elsewhere or printed.
+
+The calendar server sees the event text, so use a server you'd trust with the mail itself, or set `template = "counts"` to keep mail text out of it.
+
 ## Templates
 
 The digest's layout is a [Jinja](https://jinja.palletsprojects.com/en/stable/templates/) template. The package does the work (collecting, triaging, sorting, counting) and the template only decides what to show and how.
@@ -203,67 +381,6 @@ Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 messag
 
 Templates run sandboxed, and unknown variables are an error, not silently empty: `amanuense check` and the start of every digest try each configured template on made-up results first, so a typo never costs a run. Mail text is only ever inserted as data, never run as template code. HTML templates (`*.html.j2`) escape it.
 
-## Calendar
-
-To get the digest on your phone without a new app or service, amanuense can put it in a CalDAV calendar that the phone already syncs (Nextcloud, ownCloud, SOGo, Baïkal, iCloud, Fastmail, a university's DAV server…). Each run creates or replaces one task due that morning (or an event, with `kind = "event"`):
-
-- title: the `oneline` template, counts only (`5 to-dos (2 urgent) · next deadline Sat 10 Oct (research)`), which is what a lock screen shows
-- notes: the `tiny` template
-- a reminder at that time, marked private; tick the task off once you've read it
-
-```toml
-[calendar]
-enabled = true
-server = "https://dav.example.org/"
-username = "me"
-password_file = "~/.config/amanuense/caldav-password"   # chmod 600
-```
-
-If the server's web address leads to a login page, give its DAV address instead (for SOGo, `https://host/SOGo/dav/`). Then `amanuense calendar list` shows the calendars; copy one's `url` into the section. `amanuense calendar put` sends the last digest right away, to try it. The password is read from `password_file` (refused if others can read it), from `password_command` (e.g. `pass show caldav`), or from `$AMANUENSE_CALDAV_PASSWORD`. It is never stored elsewhere or printed.
-
-The calendar server sees the event text, so use a server you'd trust with the mail itself, or set `template = "counts"` to keep mail text out of it.
-
-## Categories
-
-The categories file (`~/.config/amanuense/categories.md`) is the only place where categories are defined. Each section with a one-word heading is a category:
-
-```markdown
-## teaching
-keyword: $label2
-
-Courses, students asking about a course, exams, grades.
-
-Examples:
-- A student asks whether topic 5 is in Tuesday's exam → teaching, needs action.
-
-## info
-keyword: none
-fallback: yes
-
-Newsletters, broadcasts, mailing lists, notifications.
-
-## Edge cases
-
-- Anything sent to a list with no personal request is info.
-```
-
-- **`keyword:`** is the IMAP keyword set when tagging. It defaults to the category name; `none` means messages in this category are never tagged.
-- **`fallback: yes`** marks the category used when the model's answer isn't a known category. Without it, the last category is the fallback.
-- **Headings with spaces**, like "Edge cases", are general notes.
-- **Everything else** goes into the model's instructions: descriptions, examples and notes, minus the `keyword:`/`fallback:` lines and `<!-- comments -->`.
-
-Small models learn much more from examples than from descriptions. When a category is often wrong, add an example in the form "an email like X → category, needs action or not", by hand or with `amanuense category example`. `amanuense category add` inserts a new section after the last category. To rename or remove a category, edit the file.
-
-### Refining the categories every day
-
-A small local model gets better mostly through its categories file, so it pays to review its work daily, especially in the first weeks:
-
-1. After the morning run, go through the tasks it made: delete the duplicates, complete what was already handled, fix wrong categories, projects, due dates and vague descriptions. A word on why ("dup", "already done", "not my action") helps the next step.
-2. Once a day, ask a more capable agent or model to compare what amanuense produced with what you kept and changed, and to turn the recurring mistakes into fixes. Most fixes are a new example or rule in `categories.md`, for instance "a student's absence note → teaching, needs action". Some are a `[taskwarrior.projects]` rule or a skip rule in the config.
-3. Before the next run, check the changes with `amanuense check`. You can also try a rule on a made-up email of the same kind.
-
-The review can be based only on the tasks, the digest and your corrections, never on the mail itself, so the mail stays on your machine. Show a cloud agent only what you would be happy to share. Rules that apply to just one person or project (who handles what, which folder means which project) belong in your own config and categories file, not in the shipped examples.
-
 ## The model's instructions
 
 For each email, the model gets a fixed set of instructions (the prompt), then your categories file, then the email. The prompt says which JSON fields to answer with and how: when an email needs action, how to word the to-do, what counts as urgent, sensitive or an event.
@@ -283,26 +400,6 @@ amanuense prompt copy                    # -> ~/.config/amanuense/prompt.md, a c
 - The built-in prompt is also in the repository, as `src/amanuense/data/prompt.example.md`. A test keeps the two the same.
 - Check a change on made-up emails before a real run: `amanuense digest --test` uses made-up emails with your prompt and the model.
 
-## Events from mail
-
-The model also says whether an email fixes an event you are expected to attend: a meeting, call, talk, class or defence on a stated date. It gives a title, the date, start and end times and a place when the email states them, and one sentence on what the event is for and your role in it.
-
-- **Not events:** a proposal still to be agreed ("can we meet on Tuesday?"), a deadline, or an event you are only told about.
-- **In the digest:** `brief`, `long` and `page` list the upcoming events, soonest first, each once. `counts` has the number, and the summary line says how many were found and added.
-- **In a calendar:** with `events.url` set to a CalDAV calendar, each upcoming event is added there:
-  ```toml
-  [events]
-  url = "https://dav.example.org/calendars/me/amanuense/"   # `amanuense calendar list` shows yours
-  minutes = 60      # length of an event whose end time the email doesn't say
-  ```
-  It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
-- **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
-- **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
-- **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
-- **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
-
-Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
-
 ## Run log
 
 Each `digest` and `tag` run adds one line to `~/.local/state/amanuense/runs.jsonl` (mode 600). It holds counts and ids only, never text from mail: no subjects, senders, titles or summaries. So you can show it to someone, or to an assistant, that must not see your mail.
@@ -318,102 +415,12 @@ amanuense log --events --details # the same with each title, read from the calen
 
 `log --events` only reads the calendar. Events you deleted are a simple measure of the model's mistakes. The mail uid leads back to the email in your mail client.
 
-## Sensitive mail
+## Limitations
 
-Some mail should be read only by you: health, sick leave, personal or family matters, HR and salaries, evaluations of people, students' personal circumstances, confidential reviews, ID numbers, bank details and passwords. amanuense marks such mail, so that an assistant with access to your mailbox or task list (for example an AI agent) knows not to open it without your say-so.
-
-- **How it decides:** the model answers one more question per email, "sensitive: yes or no", and is told to say yes when unsure. Mail matching your own rules is sensitive whatever the model says:
-  ```toml
-  [sensitive]
-  from = 'occupational-health@|hr@'
-  subject = 'confidential|sick leave'
-  # description = "..."   # what counts as sensitive, in the model's instructions
-  ```
-- **In the mailbox** (when tagging, `--tag` or `tag.enabled`):
-  - `sensitive` on sensitive mail (`sensitive.keyword`);
-  - `screened` on every email the model checked (`sensitive.screened`), sensitive or not. Mail without it hasn't been checked yet, for example mail that arrived after the run.
-
-  Both keywords are only ever added, never removed, even with `--retag`. Set either to `""` to turn it off.
-- **Tasks:** the description is only "Sensitive email from <sender>: needs action". The task gets the `sensitive` tag (`sensitive.task_tag`), and its annotation has `subject: (sensitive)` instead of the subject. A task list shown to someone else, or read by an agent, says nothing about the content.
-- **Digest:** your digest still shows the full to-do and summary, marked 🔒.
-
-A small model will miss some sensitive mail, so a reader should still check the sender and subject before opening anything. Mail skipped by the skip rules, and mail the model failed on, gets neither keyword.
-
-## Extra folders
-
-```toml
-[[folders]]
-name = "Quarantine"
-label = "held mail"     # shown in the digest
-expires_days = 14       # the server deletes mail here after 14 days
-all = true              # read the whole folder whatever the window (default)
-max_messages = 100
-project = "conf2026"    # optional: Taskwarrior project for tasks from this folder
-```
-
-- **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
-- **Read by the model once:** a message dated before the window was read on an earlier day. The digest keeps the model's answer from the last run, so the message keeps its to-do without another model call. If there is no earlier answer but the message has the `screened` keyword, it is listed without being read again. Only a message never read before goes to the model. This saves about a minute per held message per run.
-- **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
-- **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
-- **Tasks:** only messages dated inside the window get tasks. Older ones were there on earlier runs, or before you started using amanuense, so they're listed in the digest but get no task: a backlog doesn't turn into stale tasks. The due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
-- **Same email in two folders** (sent to two of your addresses): it's triaged once, from the inbox or the first folder listed.
-- **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
-
-## Waiting for replies
-
-`digest` also lists mail you sent that is still waiting for an answer:
-
-1. It reads your Sent folder for the last `waiting.lookback` (default `30d`). Messages are grouped into conversations by subject, without Re:/Fwd:, and recipients. Only the latest message of each conversation counts, so a reminder you sent restarts the clock.
-2. A conversation is waiting when that latest message is older than `waiting.after` (default `7d`), and nobody it went to has written to you since. Replies are looked for in every folder except Trash, Spam and Drafts, so filed replies count. A message that replies to yours (In-Reply-To) counts too.
-3. The local model reads each of those messages and decides whether it asked for something, and what you're waiting for. Thank-you notes and FYIs drop out.
-
-With `waiting.tasks = true` (or `--waiting-tasks`), each one also becomes a Taskwarrior task: "Follow up: …", with the category, `email` and `followup` tags. The no-duplicates rule applies as for the other tasks.
-
-Both durations take `36h`, `7d`, `2w` or a plain number of days, in the config or with `--waiting-after` and `--waiting-lookback`. These messages are checked on every run while they are within the lookback, so each costs a model call per run; `waiting.max_messages` caps that.
-
-## Taskwarrior
-
-When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is installed, `digest` adds one task for each open to-do: emails that need action and that you haven't answered. It works with Taskwarrior 2.6 and 3 (tested with 3.5). Without the `task` command, or with `enabled = false`, this step is skipped and the rest of the run is the same.
-
-- **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
-- **Description:** the to-do.
-- **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
-- **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else the first `[taskwarrior.projects]` rule that matches, else `taskwarrior.project`, else none. A rule is a name and a regular expression, matched case-insensitively against the subject, sender, recipients and folder:
-  ```toml
-  [taskwarrior.projects]
-  conf2026 = 'CONF ?2026|conf2026@'
-  ```
-- **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. If the matching task is completed or deleted, a new task is made and a note mentions the earlier one. Subjects shorter than 12 characters are too generic and never group.
-- **One task per item:** an email that names the same reference as a pending task, such as a manuscript ID, also becomes a note ("same item: …") on that task, even in a new thread. Reminders and "late review" notices from editorial systems often start a new thread.
-  - Where it looks: in the email's subject and its to-do; on pending tasks, in the description and in the subjects of the annotations. Completed and deleted tasks don't count, so a new round of the same manuscript gets a new task.
-  - The setting is `taskwarrior.references`, a list of regular expressions (case-sensitive). The default list covers:
-
-    | Pattern | Matches | Example |
-    |---|---|---|
-    | `\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b` | Editorial Manager IDs | `ABC-D-26-01234` |
-    | `\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b` | ScholarOne IDs, with a revision | `ABC-2026-0123.R1` |
-    | `(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])` | numbers of 6 to 9 digits | `1234567` |
-
-    The last one skips digits that are part of a date, a time or an amount (`2026-10-27`, `12:30`, `1.234.567`).
-  - To add your own reference, for example a ticket number like `TICKET-1234`, write the whole list in the config, since your list replaces the default one:
-    ```toml
-    [taskwarrior]
-    references = [
-      '\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b',
-      '\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b',
-      '(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])',
-      '\bTICKET-\d+\b',
-    ]
-    ```
-    Use single quotes, so the backslashes stay as they are. `references = []` turns this off. A bad pattern stops the run with a clear error, before any mail is read.
-- **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
-- **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
-- **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead.
-- **Your replies:** when you reply to the email of a pending task, the next digest adds a note to the task: `You replied on 2026-10-09 10:00 (amanuense, reply id <…>)`. The reply is found in the Sent folder by its In-Reply-To. amanuense never closes the task: you decide, or let another tool or agent close tasks from these notes. Follow-up tasks get no such note. Each reply is noted once.
-- **Changes to existing tasks:** only these notes. amanuense never completes, deletes or edits a task.
-- **Your data stays as it is:** that lookup runs with garbage collection and hooks off, so it never changes your task data. New tasks are added with one `task import`, so your hooks (for example a git sync) run once, plus one `task annotate` per reply note.
-- **Test and dry runs:** `--test` and `--dry-run` never add tasks; the digest shows "task (dry run)" instead. `amanuense check` reports whether Taskwarrior is on and how many tasks already point to emails.
-- **`tag` command:** `tag` never adds tasks.
+- Categories and to-dos are a small model's guesses. Treat the to-dos as proposals.
+- Replies are detected by `In-Reply-To`, by the `\Answered` flag, or by a message in the Sent folder to the sender after the email's date.
+- Only the email body is read, not attachments. Bodies are cut to `model.body_chars` characters.
+- Unread mail outside the window is capped at `window.max_unread` messages, newest first, so a large backlog can't make a run take hours.
 
 ## Development
 
@@ -425,13 +432,6 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
 The tests use made-up messages and a stub model. They need neither a mail server nor a model server.
 
 GitHub Actions runs them on every push and pull request (`.github/workflows/tests.yml`): Python 3.11, 3.12 and 3.13 with Taskwarrior 2.6 (Ubuntu's package), and once without Taskwarrior. The Taskwarrior tests are skipped when the `task` command is missing. No secrets are needed.
-
-## Limitations
-
-- Categories and to-dos are a small model's guesses. Treat the to-dos as proposals.
-- Replies are detected by `In-Reply-To`, by the `\Answered` flag, or by a message in the Sent folder to the sender after the email's date.
-- Only the email body is read, not attachments. Bodies are cut to `model.body_chars` characters.
-- Unread mail outside the window is capped at `window.max_unread` messages, newest first, so a large backlog can't make a run take hours.
 
 ## How this was made
 
