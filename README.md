@@ -363,7 +363,28 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
   conf2026 = 'CONF ?2026|conf2026@'
   ```
 - **One task per topic:** an email whose subject (without Re:/Fwd:/[list] prefixes and punctuation) is the same as a pending task's, or as an earlier email's in the same run, becomes a note ("same thread: …") on that task. If the matching task is completed or deleted, a new task is made and a note mentions the earlier one. Subjects shorter than 12 characters are too generic and never group.
-- **One task per item:** an email that names the same reference as a pending task, such as a manuscript ID, also becomes a note ("same item: …") on that task, even in a new thread. Reminders and "late review" notices from editorial systems often start a new thread. The reference can be in the subject or the to-do; on the task, in its description or in the subject of an annotation. The patterns are `taskwarrior.references`, regular expressions. By default they cover Editorial Manager IDs (`ABC-D-26-01234`), ScholarOne IDs (`ABC-2026-0123.R1`) and numbers of 6 to 9 digits (`1234567`), but not dates, times or amounts. Set your own list to change them, or `[]` to turn this off.
+- **One task per item:** an email that names the same reference as a pending task, such as a manuscript ID, also becomes a note ("same item: …") on that task, even in a new thread. Reminders and "late review" notices from editorial systems often start a new thread.
+  - Where it looks: in the email's subject and its to-do; on pending tasks, in the description and in the subjects of the annotations. Completed and deleted tasks don't count, so a new round of the same manuscript gets a new task.
+  - The setting is `taskwarrior.references`, a list of regular expressions (case-sensitive). The default list covers:
+
+    | Pattern | Matches | Example |
+    |---|---|---|
+    | `\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b` | Editorial Manager IDs | `ABC-D-26-01234` |
+    | `\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b` | ScholarOne IDs, with a revision | `ABC-2026-0123.R1` |
+    | `(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])` | numbers of 6 to 9 digits | `1234567` |
+
+    The last one skips digits that are part of a date, a time or an amount (`2026-10-27`, `12:30`, `1.234.567`).
+  - To add your own reference, for example a ticket number like `TICKET-1234`, write the whole list in the config, since your list replaces the default one:
+    ```toml
+    [taskwarrior]
+    references = [
+      '\b[A-Z]{2,8}-D-\d{2}-\d{3,}\b',
+      '\b[A-Z]{2,8}-\d{4}-\d{3,}(?:\.R\d+)?\b',
+      '(?<![\d.,:/-])\d{6,9}(?![\d.,:/-])',
+      '\bTICKET-\d+\b',
+    ]
+    ```
+    Use single quotes, so the backslashes stay as they are. `references = []` turns this off. A bad pattern stops the run with a clear error, before any mail is read.
 - **Annotation:** points back to the email, for example `2026-10-08 IMAP uid 123, account work, subject: Review invitation (amanuense, message-id <abc@x>)`.
 - **No duplicates:** before adding, amanuense reads all your tasks, in any status. An email whose Message-ID or account and UID already appears in an annotation gets no new task, even if you completed or deleted the earlier one. Tasks you made by hand count if their annotation has `IMAP uid N, account A` or `msgid:<...>`, or names one of the extra folders together with `uid N` (for example "/pkg uid 131 + corrected uid 132"). The same email twice in one run gets one task.
 - **Replies in a task's thread:** an email that replies (In-Reply-To) to an email that already has a task gets no new task: a note pointing to it is added to that task instead.
