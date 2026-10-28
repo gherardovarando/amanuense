@@ -22,8 +22,8 @@ max_messages = 300     # at most this many messages per run (~30 s each on a sma
 account = ""           # account name in the IMAP MCP server; empty = its default account
 inbox = "INBOX"
 sent = "Sent"          # used to spot emails you already answered
-# addresses = ["me@example.org", "m.e@example.org"]   # yours, with aliases: so two emails about one
-#                                                     # meeting are matched by the other people on them
+# addresses = ["me@example.org", "m.e@example.org"]   # yours, with aliases: they never link two
+#                                                     # emails as being about the same meeting
 
 # Extra folders to read besides the inbox, e.g. a quarantine or oversized-mail folder that
 # the server empties after some days. Repeat the [[folders]] block for each folder.

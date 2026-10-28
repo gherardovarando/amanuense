@@ -15,7 +15,7 @@ DEFAULTS = {
     "owner": {"description": "a university professor", "languages": "English"},
     "window": {"default": "24h", "unread": True, "max_unread": 100, "max_messages": 300},
     "mail": {"account": "", "inbox": "INBOX", "sent": "Sent",
-             "addresses": []},  # your own addresses: never "shared people" between two emails
+             "addresses": []},  # your own addresses: never link two emails about one meeting
     "mcp": {"command": "imap-mcp-server", "args": [], "env": {}},
     "model": {
         "api": "ollama",  # "ollama" or "openai" (any OpenAI-compatible server)

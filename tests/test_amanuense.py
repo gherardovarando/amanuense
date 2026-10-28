@@ -1114,8 +1114,9 @@ def test_events_same_meeting(fake_caldav):
     a = mail(1, "Ana <ana@uni.example>", "Workshop planning", "Workshop planning meeting", "Room 3",
              to=("me@example.org", "bob@uni.example"))
     b = mail(2, "Carla <carla@uni.example>", "Meeting link", "Meeting with Ana and Bob", "https://zoom.example/j/1",
-             cc=("Bob <BOB@uni.example>",))                                   # Bob is on both
-    c = mail(3, "Dan <dan@other.example>", "Thesis defence", "Thesis defence")  # only the time matches
+             cc=("Ana <ANA@uni.example>",))                                   # Ana sent the first one
+    c = mail(3, "Dan <dan@other.example>", "Thesis defence", "Thesis defence",  # only the time and Bob, in Cc
+             cc=("bob@uni.example",))
     d = mail(4, "Eve <eve@other.example>", "Your exam", "Exam", start="11:00")
     assert events.add(cfg, [a]) == (1, None) and a["event_status"] == "added"
     assert events.add(cfg, [a, b, c, d]) == (2, None)
@@ -1127,6 +1128,7 @@ def test_events_same_meeting(fake_caldav):
     assert "LOCATION:Room 3 · https://zoom.example/j/1" in first and "STATUS:TENTATIVE" in first
     assert "Also in an email from Carla\\, subject: Meeting link (message-id <2@test>): https://zoom.example/j/1." in first
     assert "X-AMANUENSE-PEOPLE:ana@uni.example,bob@uni.example,carla@uni.example,me@example.org" in first
+    assert "X-AMANUENSE-FROM:ana@uni.example" in first
     defence = next(v for v in store.values() if "SUMMARY:Thesis defence" in v)
     assert "Another event starts at the same time: 'Workshop planning meeting'. If it is the same meeting\\, delete one." in defence
     before = dict(fake_caldav["store"])
@@ -1140,19 +1142,22 @@ def test_events_same_meeting(fake_caldav):
     assert events.add(cfg, [e]) == (0, None) and e["event_status"] == "exists"      # confirmed: left alone
     assert fake_caldav["store"] == before
 
-    cal = {"title": "Planning", "notes": "", "people": {"ana@uni.example", "me@example.org"}}
-    f = mail(6, "Zoe <zoe@x.example>", "Link", "Other", to=("me@example.org", "ana@uni.example"))
-    assert events.same_meeting(cfg, f, cal) == ["shared people"]
-    cfg["mail"]["addresses"] = []                                       # then only a sender on the other counts
-    assert events.same_meeting(cfg, f, cal) == []
-    assert events.same_meeting(cfg, mail(7, "ana@uni.example", "x", "Other"), cal) == ["shared people"]
-    assert events.same_meeting(cfg, mail(8, "z@x", "Re: [list] Summer school planning", "Summer school: link"),
+    cal = {"title": "Planning", "notes": "", "sender": "ana@uni.example",
+           "people": {"ana@uni.example", "me@example.org", "list@uni.example"}}
+    same = lambda m: events.same_meeting(cfg, m, cal)
+    assert same(mail(6, "Zoe <zoe@x.example>", "Link", "Other", to=("me@example.org", "ana@uni.example"))) == ["shared people"]
+    assert same(mail(7, "Zoe <zoe@x.example>", "Link", "Other", to=("list@uni.example",))) == []   # only a list
+    assert same(mail(8, "list@uni.example", "x", "Other")) == ["shared people"]                    # the list sent one
+    assert same(mail(9, "Ana <ana@uni.example>", "x", "Other", to=())) == ["shared people"]
+    mine = {"title": "Planning", "notes": "", "sender": "me@example.org", "people": {"me@example.org"}}
+    assert events.same_meeting(cfg, mail(10, "Zoe <zoe@x.example>", "x", "Other"), mine) == []      # you don't count
+    assert events.same_meeting(cfg, mail(11, "z@x", "Re: [list] Summer school planning", "Summer school: link"),
                                {"title": "Meeting for summer school planning", "people": set(),
                                 "notes": "Proposed by amanuense from an email from Z, subject: Summer school planning "
                                          "(message-id <x>)."}) == ["similar title", "same subject"]
-    assert events.same_meeting(cfg, mail(9, "z@x", "Defence of 1234567", "Defence"),
+    assert events.same_meeting(cfg, mail(12, "z@x", "Defence of 1234567", "Defence"),
                                {"title": "Viva 1234567", "people": set(), "notes": ""}) == ["same reference"]
-    assert events.same_meeting(cfg, mail(10, "z@x", "Meeting", "Meeting with Ana"),
+    assert events.same_meeting(cfg, mail(13, "z@x", "Meeting", "Meeting with Ana"),
                                {"title": "Meeting with Bob", "people": set(), "notes": ""}) == []
 
     opts = triage.Options(*window.parse_window("24h"))

@@ -256,7 +256,7 @@ def _event(p):
     get = lambda k: _untext(p[k][1]).strip() if k in p else ""
     return {"start": start, "end": end, "all_day": all_day, "title": get("SUMMARY") or "(no title)",
             "place": get("LOCATION"), "status": get("STATUS").lower(), "notes": get("DESCRIPTION"),
-            "repeats": "RRULE" in p, "uid": get("UID"),
+            "repeats": "RRULE" in p, "uid": get("UID"), "sender": get("X-AMANUENSE-FROM").lower(),
             "people": {a for a in get("X-AMANUENSE-PEOPLE").lower().split(",") if a}}
 
 

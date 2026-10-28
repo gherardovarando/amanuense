@@ -294,12 +294,11 @@ The model also says whether an email fixes an event you are expected to attend: 
 - **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
 - **One event per meeting:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice.
 - **The same meeting from someone else:** before adding an event, amanuense reads the events calendar for that day. An event at the same start time is taken as the same meeting if one of these also holds:
-  - **shared people:** someone other than you is on both emails (sender, To or Cc). Each event keeps these addresses in a hidden field, `X-AMANUENSE-PEOPLE`. Set your own addresses, so they don't count:
+  - **shared people:** the sender of one email is also on the other (as sender, To or Cc). Someone who is only a recipient of both, such as a mailing list or a colleague in Cc, is not enough: two meetings at the same time can go to the same list. Each event keeps its sender and people in hidden fields, `X-AMANUENSE-FROM` and `X-AMANUENSE-PEOPLE`. If you send mail that makes events yourself, for example from a project address, list your own addresses so they never count:
     ```toml
     [mail]
-    addresses = ["me@example.org", "m.e@example.org"]
+    addresses = ["me@example.org", "project@example.org"]
     ```
-    Without them, only a sender counts: the sender of one email must be on the other.
   - **a similar title:** the titles share their main words ("meeting", "call", "zoom", "link" and the like don't count);
   - **the same subject**, without Re:/Fwd:;
   - **the same reference**, as for tasks (see `taskwarrior.references`).

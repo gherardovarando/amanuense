@@ -3,7 +3,7 @@
 Each event is created TENTATIVE, with a description pointing back to the email. Its id comes
 from the date, the start time and the sender, so the same meeting in a later email from the same
 person is recognised. A later email about the same meeting from someone else (same time, and
-shared people, a similar title, the same subject or the same reference) adds its place or link
+a sender of one on the other, a similar title, the same subject or the same reference) adds its place or link
 to amanuense's own event while that is still tentative; one you confirmed or edited is left as
 it is. amanuense never deletes an event. If only the time matches, a new event is added and
 both its notes and the digest say another event starts then.
@@ -66,7 +66,7 @@ def ics(cfg, m, now=None):
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//amanuense//events//EN", "BEGIN:VEVENT",
              f"UID:{uid(m)}", f"DTSTAMP:{utc(now)}", *when, "STATUS:TENTATIVE", "CLASS:PRIVATE",
              f"SUMMARY:{caldav._text(title)}", f"DESCRIPTION:{caldav._text(notes)}",
-             f"X-AMANUENSE-PEOPLE:{','.join(sorted(people(m)))}"]
+             f"X-AMANUENSE-FROM:{addr(m.get('from'))}", f"X-AMANUENSE-PEOPLE:{','.join(sorted(people(m)))}"]
     if place:
         lines.append(f"LOCATION:{caldav._text(place)}")
     lines += ["END:VEVENT", "END:VCALENDAR"]
@@ -95,12 +95,9 @@ def same_meeting(cfg, m, e):
     """Why the email's event and the calendar event e (at the same time) look like one meeting:
     a list of reasons, empty if nothing but the time matches."""
     mine = set(cfg["mail"]["addresses"])
-    ours, theirs = people(m) - mine, e["people"] - mine
-    if mine:
-        shared = ours & theirs
-    else:  # without your addresses only senders count: the sender of one is on the other
-        sender = addr(m.get("from"))
-        shared = {sender} & theirs if sender else set()
+    # someone who sent one of the two emails is on the other: a list or a colleague in Cc on both is not enough
+    senders = {addr(m.get("from")), e.get("sender", "")} - mine - {""}
+    shared = senders & (people(m) - mine) & (e["people"] - mine)
     why = ["shared people"] if shared else []
     a, b = _words(m["ai"]["event"]["title"]), _words(e["title"])
     if a and b and len(a & b) >= min(2, len(a), len(b)):
