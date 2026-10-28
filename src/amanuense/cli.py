@@ -261,6 +261,13 @@ def cmd_digest(cfg, a):
                                       followups=cfg["waiting"]["enabled"]))
     for p in opts.problems:
         print(f"amanuense: warning: {p}", file=sys.stderr)
+    try:  # made-up mail never reaches a calendar; first, so tasks know which emails are about one meeting
+        _, problem = events.add(cfg, msgs, dry_run=a.dry_run or a.test)
+    except (OSError, ValueError) as e:
+        problem = f"{type(e).__name__}: {e}"
+    if problem:
+        opts.problems.append(f"calendar events: {problem}")
+        print(f"amanuense: warning: calendar events: {problem}", file=sys.stderr)
     task_error, replies = None, 0
     if tasks.enabled(cfg):
         try:  # made-up mail never becomes real tasks
@@ -271,13 +278,6 @@ def cmd_digest(cfg, a):
         except tasks.TaskError as e:
             task_error = str(e)
             print(f"amanuense: warning: {e}", file=sys.stderr)
-    try:  # made-up mail never reaches a calendar
-        _, problem = events.add(cfg, msgs, dry_run=a.dry_run or a.test)
-    except (OSError, ValueError) as e:
-        problem = f"{type(e).__name__}: {e}"
-    if problem:
-        opts.problems.append(f"calendar events: {problem}")
-        print(f"amanuense: warning: calendar events: {problem}", file=sys.stderr)
     elapsed = time.time() - t0
     if not a.test:
         save_results(opts, elapsed, task_error, msgs, waits)

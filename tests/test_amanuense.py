@@ -1128,7 +1128,7 @@ def test_events_same_meeting(fake_caldav):
     assert "LOCATION:Room 3 · https://zoom.example/j/1" in first and "STATUS:TENTATIVE" in first
     assert "Also in an email from Carla\\, subject: Meeting link (message-id <2@test>): https://zoom.example/j/1." in first
     assert "X-AMANUENSE-PEOPLE:ana@uni.example,bob@uni.example,carla@uni.example,me@example.org" in first
-    assert "X-AMANUENSE-FROM:ana@uni.example" in first
+    assert "X-AMANUENSE-FROM:ana@uni.example,carla@uni.example" in first
     defence = next(v for v in store.values() if "SUMMARY:Thesis defence" in v)
     assert "Another event starts at the same time: 'Workshop planning meeting'. If it is the same meeting\\, delete one." in defence
     before = dict(fake_caldav["store"])
@@ -1142,14 +1142,14 @@ def test_events_same_meeting(fake_caldav):
     assert events.add(cfg, [e]) == (0, None) and e["event_status"] == "exists"      # confirmed: left alone
     assert fake_caldav["store"] == before
 
-    cal = {"title": "Planning", "notes": "", "sender": "ana@uni.example",
+    cal = {"title": "Planning", "notes": "", "senders": {"ana@uni.example"},
            "people": {"ana@uni.example", "me@example.org", "list@uni.example"}}
     same = lambda m: events.same_meeting(cfg, m, cal)
     assert same(mail(6, "Zoe <zoe@x.example>", "Link", "Other", to=("me@example.org", "ana@uni.example"))) == ["shared people"]
     assert same(mail(7, "Zoe <zoe@x.example>", "Link", "Other", to=("list@uni.example",))) == []   # only a list
     assert same(mail(8, "list@uni.example", "x", "Other")) == ["shared people"]                    # the list sent one
     assert same(mail(9, "Ana <ana@uni.example>", "x", "Other", to=())) == ["shared people"]
-    mine = {"title": "Planning", "notes": "", "sender": "me@example.org", "people": {"me@example.org"}}
+    mine = {"title": "Planning", "notes": "", "senders": {"me@example.org"}, "people": {"me@example.org"}}
     assert events.same_meeting(cfg, mail(10, "Zoe <zoe@x.example>", "x", "Other"), mine) == []      # you don't count
     assert events.same_meeting(cfg, mail(11, "z@x", "Re: [list] Summer school planning", "Summer school: link"),
                                {"title": "Meeting for summer school planning", "people": set(),
@@ -1169,6 +1169,39 @@ def test_events_same_meeting(fake_caldav):
     assert render.stats([a, b, c, d])["events_merged"] == 1
     with pytest.raises(SystemExit, match="mail.addresses"):
         config.load(None, {"mail": {"addresses": "me@example.org"}}, require_file=False)
+
+
+def test_tasks_same_meeting(fake_caldav, taskdb):
+    """Two emails about one meeting (found through the calendar) give one task, in either order."""
+    import json
+    from amanuense import events
+    cfg = config.load(None, {"calendar": {"server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"]},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/amanuense/"},
+                             "mail": {"account": "work", "addresses": ["me@example.org"]}}, require_file=False)
+    day = f"{datetime.now() + timedelta(days=3):%Y-%m-%d}"
+    def mail(uid, frm, subject, title, todo, place=None, to=("me@example.org",)):
+        return {"uid": uid, "from": frm, "to": list(to), "cc": [], "subject": subject, "messageId": f"<{uid}@test>",
+                "handled": False, "ai": {"category": "info", "needs_action": True, "todo": todo, "summary": "",
+                                          "deadline": None, "event": {"title": title, "date": day, "start": "09:30",
+                                                                      "end": None, "place": place, "why": None}}}
+    a = mail(1, "Ana <ana@uni.example>", "Workshop planning", "Workshop planning meeting", "Attend the planning meeting",
+             to=("me@example.org", "bob@uni.example"))
+    b = mail(2, "Bob <bob@uni.example>", "Link for tomorrow", "Call with Ana", "Join the call", "https://zoom.example/j/1")
+    msgs = [b, a]                                         # the link email first: tasks still end up as one
+    events.add(cfg, msgs)
+    assert {a["event_status"], b["event_status"]} == {"added", "merged"}
+    assert a["same_meeting"] == ["<2@test>"] and b["same_meeting"] == ["<1@test>"]
+    assert taskdb.add_tasks(cfg, msgs) == 1
+    assert b["task"] == "added" and a["task"] == "noted"
+    t = json.loads(taskdb._task(cfg, "export", read_only=True))
+    assert len(t) == 1 and t[0]["annotations"][1]["description"].startswith("same meeting: ") and "uid 1," in t[0]["annotations"][1]["description"]
+
+    c = mail(3, "Carla <carla@uni.example>", "Room change", "Workshop planning", "Go to room 5", "Room 5",
+             to=("me@example.org", "ana@uni.example"))
+    events.add(cfg, [c])                                  # a later run: the task is already there
+    assert c["event_status"] == "merged" and sorted(c["same_meeting"]) == ["<1@test>", "<2@test>"]
+    assert taskdb.add_tasks(cfg, [c]) == 0 and c["task"] == "noted"
 
 
 def test_calendar_checks(fake_caldav):

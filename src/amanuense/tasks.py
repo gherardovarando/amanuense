@@ -218,7 +218,8 @@ def add_followups(cfg, waits, dry_run=False):
 
 
 def _add(cfg, todo, make, dry_run, group=False):
-    """With group, mail in the thread of a task, on the same topic (subject without Re:/Fwd:), or that
+    """With group, mail in the thread of a task, about the same meeting as its email (see events.add),
+    on the same topic (subject without Re:/Fwd:), or that
     names the same reference (e.g. a manuscript ID, see taskwarrior.references) in its subject or to-do,
     becomes a note on that task if it is pending. If the matching task was marked done or deleted,
     the mail gets a new task with the tag "again" and a note saying so: a reminder about something
@@ -238,6 +239,7 @@ def _add(cfg, todo, make, dry_run, group=False):
         matches = []  # (task, label), most specific first
         if m.get("inReplyTo") in ids:
             matches.append((ids[m["inReplyTo"]], "same thread"))
+        matches += [(ids[i], "same meeting") for i in m.get("same_meeting", []) if i in ids]
         matches += [(topics[k], "same thread")] if k in topics else []
         matches += [(refs[r], "same item") for r in sorted(named) if r in refs]
         pending = next(((t, label) for t, label in matches if t["status"] not in CLOSED), None)

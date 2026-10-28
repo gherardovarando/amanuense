@@ -96,7 +96,7 @@ def same_meeting(cfg, m, e):
     a list of reasons, empty if nothing but the time matches."""
     mine = set(cfg["mail"]["addresses"])
     # someone who sent one of the two emails is on the other: a list or a colleague in Cc on both is not enough
-    senders = {addr(m.get("from")), e.get("sender", "")} - mine - {""}
+    senders = ({addr(m.get("from"))} | e.get("senders", set())) - mine - {""}
     shared = senders & (people(m) - mine) & (e["people"] - mine)
     why = ["shared people"] if shared else []
     a, b = _words(m["ai"]["event"]["title"]), _words(e["title"])
@@ -139,6 +139,8 @@ def merged(cfg, m, e, now=None):
                 out.append(f"DESCRIPTION:{caldav._text(extra)}")
             if "X-AMANUENSE-PEOPLE" not in seen:
                 out.append(f"X-AMANUENSE-PEOPLE:{','.join(sorted(people(m)))}")
+            if "X-AMANUENSE-FROM" not in seen and addr(m.get("from")):
+                out.append(f"X-AMANUENSE-FROM:{addr(m.get('from'))}")
             inside = False
         elif inside and name not in seen:
             seen.add(name)
@@ -148,17 +150,33 @@ def merged(cfg, m, e, now=None):
                 line += "\\n\\n" + caldav._text(extra)
             elif name == "X-AMANUENSE-PEOPLE":
                 line = f"X-AMANUENSE-PEOPLE:{','.join(sorted(e['people'] | people(m)))}"
+            elif name == "X-AMANUENSE-FROM":
+                line = f"X-AMANUENSE-FROM:{','.join(sorted(e['senders'] | {addr(m.get('from'))} - {''}))}"
             elif name == "DTSTAMP":
                 line = f"DTSTAMP:{now.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}"
         out.append(line)
     return "\r\n".join(caldav._fold(l) for l in out) + "\r\n"
 
 
+MSGID = re.compile(r"message-id (<[^>]+>)")
+
+
+def link(msgs, m, e):
+    """Record that m is about the same meeting as the emails named in event e, both ways, in
+    m["same_meeting"] (Message-IDs): their to-dos then become one task."""
+    others = set(MSGID.findall(e["notes"])) - {m.get("messageId")}
+    m["same_meeting"] = sorted(set(m.get("same_meeting", [])) | others)
+    for o in msgs:
+        if o.get("messageId") in others and m.get("messageId"):
+            o["same_meeting"] = sorted(set(o.get("same_meeting", [])) | {m["messageId"]})
+
+
 def add(cfg, msgs, dry_run=False):
     """Create the upcoming events in events.url, or add the email to the same meeting already there.
     Sets m["event_status"] on each: "added", "merged" (into amanuense's tentative event),
     "exists" (already there, left as it is), "would add" or "failed"; m["event_other"] is the
-    title of the other event at that time, if any. Returns (added, problem or None)."""
+    title of the other event at that time, if any; m["same_meeting"] the Message-IDs of the other
+    emails about that meeting. Returns (added, problem or None)."""
     url = cfg["events"]["url"]
     added, problem = 0, None
     for m in upcoming(msgs):
@@ -168,10 +186,13 @@ def add(cfg, msgs, dry_run=False):
         try:
             day = datetime.strptime(m["ai"]["event"]["date"], "%Y-%m-%d").astimezone()
             there = [e for e in caldav.items(cfg["calendar"], url, day, day + timedelta(days=1)) if _at_same_time(m, e)]
-            if any(e["uid"] == uid(m) for e in there):
+            same = (next((e for e in there if e["uid"] == uid(m)), None)
+                    or next((e for e in there if same_meeting(cfg, m, e)), None))
+            if same:
+                link(msgs, m, same)
+            if same and same["uid"] == uid(m):
                 m["event_status"], m["event_id"] = "exists", uid(m)
                 continue
-            same = next((e for e in there if same_meeting(cfg, m, e)), None)
             if same:
                 m["event_other"], m["event_id"] = same["title"], same["uid"]
                 ours = same["uid"].startswith(OURS) and same["status"] == "tentative"
