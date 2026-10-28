@@ -33,7 +33,7 @@ def entry(command, cfg, opts, msgs, elapsed, tasks_error=None, replies=0):
         "replies_noted": replies,
         "task_error": tasks_error,
         "problems": list(opts.problems),
-        "calendar_events": [{"id": events.uid(m), "date": m["ai"]["event"]["date"],
+        "calendar_events": [{"id": m.get("event_id") or events.uid(m), "date": m["ai"]["event"]["date"],
                              "start": m["ai"]["event"]["start"], "mail_uid": m.get("uid"),
                              "status": m.get("event_status")} for m in events.upcoming(msgs)],
     }

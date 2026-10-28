@@ -18,11 +18,11 @@
 {%- endmacro %}
 
 {% macro event(m) -%}
-- {{ m.event.date | date("%a %d %b") }}{% if m.event.start %} {{ m.event.start }}{% if m.event.end %}–{{ m.event.end }}{% endif %}{% endif %}: {{ m.event.title }}{% if m.event.place %} ({{ m.event.place }}){% endif %} — {{ m.sender }}, uid {{ m.uid }}{{ event_note(m.event_status) }}
+- {{ m.event.date | date("%a %d %b") }}{% if m.event.start %} {{ m.event.start }}{% if m.event.end %}–{{ m.event.end }}{% endif %}{% endif %}: {{ m.event.title }}{% if m.event.place %} ({{ m.event.place }}){% endif %} — {{ m.sender }}, uid {{ m.uid }}{{ event_note(m.event_status, m.event_other) }}
 {%- endmacro %}
 
-{% macro event_note(s) -%}
-{% if s == "added" %} · added (tentative){% elif s == "exists" %} · already in the calendar{% elif s == "failed" %} · not added (error){% endif %}
+{% macro event_note(s, other=none) -%}
+{% if s == "added" %} · added (tentative){% if other %}; another event starts at the same time: '{{ other }}'{% endif %}{% elif s == "merged" %} · added to '{{ other }}' at the same time{% elif s == "exists" %} · already in the calendar{% if other %} as '{{ other }}'{% endif %}{% elif s == "failed" %} · not added (error){% endif %}
 {%- endmacro %}
 
 {% macro waiting(s) -%}

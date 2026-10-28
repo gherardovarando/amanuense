@@ -66,6 +66,7 @@ class Mailbox:
         return {
             "body": e.get("textContent") or e.get("markdownContent") or "",
             "attachments": [a.get("filename") for a in e.get("attachments") or [] if a.get("filename")],
+            "cc": e.get("cc") or [],
         }
 
     async def add_keyword(self, folder, uid, keyword):

@@ -87,20 +87,20 @@ class FakeMailbox:
             raise RuntimeError(f"Mailbox doesn't exist: {folder}")
         if seen is False:
             msgs = [m for m in msgs if m.get("uid") in self.unread]
-        return [{k: v for k, v in m.items() if k not in ("body", "attachments")} for m in msgs][:limit]
+        return [{k: v for k, v in m.items() if k not in ("body", "attachments", "cc")} for m in msgs][:limit]
 
     async def search_all(self, since=None, limit=50, **_):
         self._check()
         folders = {self.cfg["mail"]["inbox"]: self.inbox, self.cfg["mail"]["sent"]: self.sent,
                    "Archive": self.archive, **self.extra}
-        return [{**{k: v for k, v in m.items() if k not in ("body", "attachments")}, "folder": f}
+        return [{**{k: v for k, v in m.items() if k not in ("body", "attachments", "cc")}, "folder": f}
                 for f, ms in folders.items() for m in ms][:limit]
 
     async def get(self, folder, uid, body_chars):
         self._check()
         pool = self.sent if folder == self.cfg["mail"]["sent"] else self.extra.get(folder, self.inbox)
         m = next(m for m in pool if m["uid"] == uid)
-        return {"body": m["body"][:body_chars], "attachments": m.get("attachments", [])}
+        return {"body": m["body"][:body_chars], "attachments": m.get("attachments", []), "cc": m.get("cc", [])}
 
     async def add_keyword(self, folder, uid, keyword):
         self.written.append(("add", uid, keyword))

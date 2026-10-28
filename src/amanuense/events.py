@@ -1,15 +1,21 @@
 """Events the mail fixes: listed in the digest and, with events.url set, added to a CalDAV calendar.
 
-Each event is created once, TENTATIVE, with a description pointing back to the email. Its id comes
+Each event is created TENTATIVE, with a description pointing back to the email. Its id comes
 from the date, the start time and the sender, so the same meeting in a later email from the same
-person is recognised. amanuense never replaces, edits or deletes an event: one you confirmed,
-moved or deleted stays as you left it.
+person is recognised. A later email about the same meeting from someone else (same time, and
+shared people, a similar title, the same subject or the same reference) adds its place or link
+to amanuense's own event while that is still tentative; one you confirmed or edited is left as
+it is. amanuense never deletes an event. If only the time matches, a new event is added and
+both its notes and the digest say another event starts then.
 """
 import hashlib
+import re
 from datetime import datetime, timedelta, timezone
 
-from . import caldav
+from . import caldav, tasks
 from .triage import addr, short_from
+
+OURS = "amanuense-event-"
 
 
 def upcoming(msgs, today=None):
@@ -29,7 +35,7 @@ def upcoming(msgs, today=None):
 def uid(m):
     e = m["ai"]["event"]
     key = f"{e['date']}|{e['start'] or 'all day'}|{addr(m.get('from'))}"
-    return "amanuense-event-" + hashlib.sha1(key.encode()).hexdigest()[:16]
+    return OURS + hashlib.sha1(key.encode()).hexdigest()[:16]
 
 
 def ics(cfg, m, now=None):
@@ -55,18 +61,107 @@ def ics(cfg, m, now=None):
     why = "" if m.get("sensitive") or not e.get("why") else e["why"].rstrip(".") + ".\n\n"
     notes = (f"{why}Proposed by amanuense from {about} (message-id {m.get('messageId') or 'unknown'}). "
              "It may be wrong: confirm it by editing it, or delete it.")
+    if m.get("event_other"):
+        notes += f"\n\nAnother event starts at the same time: '{m['event_other']}'. If it is the same meeting, delete one."
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//amanuense//events//EN", "BEGIN:VEVENT",
              f"UID:{uid(m)}", f"DTSTAMP:{utc(now)}", *when, "STATUS:TENTATIVE", "CLASS:PRIVATE",
-             f"SUMMARY:{caldav._text(title)}", f"DESCRIPTION:{caldav._text(notes)}"]
+             f"SUMMARY:{caldav._text(title)}", f"DESCRIPTION:{caldav._text(notes)}",
+             f"X-AMANUENSE-PEOPLE:{','.join(sorted(people(m)))}"]
     if place:
         lines.append(f"LOCATION:{caldav._text(place)}")
     lines += ["END:VEVENT", "END:VCALENDAR"]
     return "\r\n".join(caldav._fold(l) for l in lines) + "\r\n"
 
 
+def people(m):
+    """The addresses on an email: sender, To and Cc, lowercased."""
+    return {addr(a) for a in [m.get("from"), *(m.get("to") or []), *(m.get("cc") or [])] if addr(a)}
+
+
+GENERIC = {"meeting", "reunion", "reunión", "call", "with", "about", "online", "zoom", "teams", "link",
+           "enlace", "session", "sesión", "and", "the", "for", "para", "sobre", "con", "del"}
+
+
+def _words(text):
+    return {w for w in re.findall(r"\w+", (text or "").lower()) if len(w) >= 3 and w not in GENERIC}
+
+
+def _subject(notes):
+    found = re.search(r"subject: (.*?) \(message-id", notes or "")
+    return found.group(1) if found else ""
+
+
+def same_meeting(cfg, m, e):
+    """Why the email's event and the calendar event e (at the same time) look like one meeting:
+    a list of reasons, empty if nothing but the time matches."""
+    mine = set(cfg["mail"]["addresses"])
+    ours, theirs = people(m) - mine, e["people"] - mine
+    if mine:
+        shared = ours & theirs
+    else:  # without your addresses only senders count: the sender of one is on the other
+        sender = addr(m.get("from"))
+        shared = {sender} & theirs if sender else set()
+    why = ["shared people"] if shared else []
+    a, b = _words(m["ai"]["event"]["title"]), _words(e["title"])
+    if a and b and len(a & b) >= min(2, len(a), len(b)):
+        why.append("similar title")
+    if tasks.topic(m.get("subject")) and tasks.topic(m.get("subject")) == tasks.topic(_subject(e["notes"])):
+        why.append("same subject")
+    named = tasks.references(cfg, m.get("subject"), m["ai"]["event"]["title"])
+    if named & tasks.references(cfg, _subject(e["notes"]), e["title"]):
+        why.append("same reference")
+    return why
+
+
+def _at_same_time(m, e):
+    ev = m["ai"]["event"]
+    if not ev["start"]:
+        return e["all_day"] and f"{e['start']:%Y-%m-%d}" == ev["date"]
+    return not e["all_day"] and f"{e['start']:%Y-%m-%d %H:%M}" == f"{ev['date']} {ev['start']}"
+
+
+def merged(cfg, m, e, now=None):
+    """The raw iCalendar text of e with this email added: its place or link in LOCATION (if not
+    there yet), a line in the description, and its people. Sensitive mail adds only the sender."""
+    now = now or datetime.now().astimezone()
+    sender = short_from(m.get("from"))
+    place = None if m.get("sensitive") else m["ai"]["event"]["place"]
+    about = (f"a sensitive email from {sender}" if m.get("sensitive")
+             else f"an email from {sender}, subject: {m.get('subject') or '(no subject)'}")
+    extra = f"Also in {about} (message-id {m.get('messageId') or 'unknown'})" + (f": {place}" if place else "") + "."
+    lines = re.sub(r"\r?\n[ \t]", "", e["raw"]).splitlines()
+    out, inside, seen = [], False, set()
+    for line in lines:
+        name = re.split(r"[;:]", line, 1)[0].upper()
+        if line == "BEGIN:VEVENT":
+            inside = True
+        elif line == "END:VEVENT" and inside:
+            if place and "LOCATION" not in seen:
+                out.append(f"LOCATION:{caldav._text(place)}")
+            if "DESCRIPTION" not in seen:
+                out.append(f"DESCRIPTION:{caldav._text(extra)}")
+            if "X-AMANUENSE-PEOPLE" not in seen:
+                out.append(f"X-AMANUENSE-PEOPLE:{','.join(sorted(people(m)))}")
+            inside = False
+        elif inside and name not in seen:
+            seen.add(name)
+            if name == "LOCATION" and place and place.lower() not in caldav._untext(line.split(":", 1)[1]).lower():
+                line += " · " + caldav._text(place)
+            elif name == "DESCRIPTION":
+                line += "\\n\\n" + caldav._text(extra)
+            elif name == "X-AMANUENSE-PEOPLE":
+                line = f"X-AMANUENSE-PEOPLE:{','.join(sorted(e['people'] | people(m)))}"
+            elif name == "DTSTAMP":
+                line = f"DTSTAMP:{now.astimezone(timezone.utc):%Y%m%dT%H%M%SZ}"
+        out.append(line)
+    return "\r\n".join(caldav._fold(l) for l in out) + "\r\n"
+
+
 def add(cfg, msgs, dry_run=False):
-    """Create the upcoming events in events.url. Sets m["event_status"] ("added", "exists",
-    "would add", "failed") on each; returns (added, problem or None)."""
+    """Create the upcoming events in events.url, or add the email to the same meeting already there.
+    Sets m["event_status"] on each: "added", "merged" (into amanuense's tentative event),
+    "exists" (already there, left as it is), "would add" or "failed"; m["event_other"] is the
+    title of the other event at that time, if any. Returns (added, problem or None)."""
     url = cfg["events"]["url"]
     added, problem = 0, None
     for m in upcoming(msgs):
@@ -74,6 +169,24 @@ def add(cfg, msgs, dry_run=False):
             m["event_status"] = "would add"
             continue
         try:
+            day = datetime.strptime(m["ai"]["event"]["date"], "%Y-%m-%d").astimezone()
+            there = [e for e in caldav.items(cfg["calendar"], url, day, day + timedelta(days=1)) if _at_same_time(m, e)]
+            if any(e["uid"] == uid(m) for e in there):
+                m["event_status"], m["event_id"] = "exists", uid(m)
+                continue
+            same = next((e for e in there if same_meeting(cfg, m, e)), None)
+            if same:
+                m["event_other"], m["event_id"] = same["title"], same["uid"]
+                ours = same["uid"].startswith(OURS) and same["status"] == "tentative"
+                if ours and f"message-id {m.get('messageId')}" in same["notes"]:
+                    m["event_status"] = "exists"
+                elif ours and caldav.update(cfg["calendar"], same["href"], merged(cfg, m, same), same["etag"]):
+                    m["event_status"] = "merged"
+                else:
+                    m["event_status"] = "exists"
+                continue
+            if there:
+                m["event_other"] = there[0]["title"]
             new = caldav.create(cfg["calendar"], url, uid(m), ics(cfg, m))
         except caldav.CalendarError as err:
             m["event_status"] = "failed"

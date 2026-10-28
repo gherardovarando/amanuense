@@ -110,7 +110,8 @@ def item(m, cfg):
         "deadline": ai.get("deadline"), "priority": priority(m, cfg) if ai else None,
         "summary": ai.get("summary") or "", "sensitive": bool(m.get("sensitive")),
         "event": ai.get("event"),  # {title, date, start, end, place} or None
-        "event_status": m.get("event_status"),  # "added", "exists", "would add", "failed" or None
+        "event_status": m.get("event_status"),  # "added", "merged", "exists", "would add", "failed" or None
+        "event_other": m.get("event_other"),  # title of another event at the same time (the same meeting if merged/exists)
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists" or None
         "earlier": m.get("earlier"),  # "completed" or "deleted": the new task is about a task closed before
         "expires": expires, "days_left": (expires - datetime.now().astimezone()).days if expires else None,

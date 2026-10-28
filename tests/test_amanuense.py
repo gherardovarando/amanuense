@@ -590,6 +590,7 @@ def fake_caldav(tmp_path):
     import http.server
     import threading
     store = {}
+    etag = lambda body: f'"{hash(body)}"'
 
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, *a):
@@ -650,16 +651,17 @@ def fake_caldav(tmp_path):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             if not self._auth():
                 return
-            self._xml("".join(f"<d:response><d:href>{k}</d:href><d:propstat><d:prop><c:calendar-data>{escape(v)}"
-                              "</c:calendar-data></d:prop></d:propstat></d:response>"
+            self._xml("".join(f"<d:response><d:href>{k}</d:href><d:propstat><d:prop><d:getetag>{etag(v)}</d:getetag>"
+                              f"<c:calendar-data>{escape(v)}</c:calendar-data></d:prop></d:propstat></d:response>"
                               for k, v in store.items() if k.startswith(self.path)))
 
         def do_PUT(self):
             body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
             if not self._auth():
                 return
-            if self.headers.get("If-None-Match") == "*" and self.path in store:
-                self.send_response(412)                 # create-only: never replace
+            if ((self.headers.get("If-None-Match") == "*" and self.path in store)     # create-only: never replace
+                    or (self.headers.get("If-Match") and self.headers["If-Match"] != etag(store.get(self.path)))):
+                self.send_response(412)                 # changed since it was read
                 self.end_headers()
                 return
             created = self.path not in store
@@ -1095,6 +1097,73 @@ def test_events_added_to_calendar(fake_caldav):
     by_uid[2]["event_status"] = "added"
     brief = templates.render(cfg, "brief", msgs, opts, 1)
     assert "## Events" in brief and "added (tentative)" in brief and "I would add" not in brief
+
+
+def test_events_same_meeting(fake_caldav):
+    """A later email about the same meeting, from someone else, adds its link to the tentative event."""
+    from amanuense import events
+    cfg = config.load(None, {"calendar": {"server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"]},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/amanuense/"},
+                             "mail": {"addresses": ["Me@Example.org"]}}, require_file=False)
+    day = f"{datetime.now() + timedelta(days=3):%Y-%m-%d}"
+    def mail(uid, frm, subject, title, place=None, to=("me@example.org",), cc=(), start="09:30"):
+        return {"uid": uid, "from": frm, "to": list(to), "cc": list(cc), "subject": subject, "messageId": f"<{uid}@test>",
+                "date": f"{datetime.now().astimezone():%Y-%m-%dT%H:%M:%S%z}", "handled": False,
+                "ai": {"category": "info", "needs_action": False, "todo": None, "summary": "s", "deadline": None, "event": {"title": title, "date": day, "start": start, "end": "10:30", "place": place, "why": None}}}
+    a = mail(1, "Ana <ana@uni.example>", "Workshop planning", "Workshop planning meeting", "Room 3",
+             to=("me@example.org", "bob@uni.example"))
+    b = mail(2, "Carla <carla@uni.example>", "Meeting link", "Meeting with Ana and Bob", "https://zoom.example/j/1",
+             cc=("Bob <BOB@uni.example>",))                                   # Bob is on both
+    c = mail(3, "Dan <dan@other.example>", "Thesis defence", "Thesis defence")  # only the time matches
+    d = mail(4, "Eve <eve@other.example>", "Your exam", "Exam", start="11:00")
+    assert events.add(cfg, [a]) == (1, None) and a["event_status"] == "added"
+    assert events.add(cfg, [a, b, c, d]) == (2, None)
+    assert [m["event_status"] for m in (a, b, c, d)] == ["exists", "merged", "added", "added"]
+    assert b["event_other"] == "Workshop planning meeting" and c["event_other"] == "Workshop planning meeting"
+    assert "event_other" not in d
+    store = {k: v.replace("\r\n ", "") for k, v in fake_caldav["store"].items()}
+    first = next(v for v in store.values() if "Workshop planning meeting" in v)
+    assert "LOCATION:Room 3 · https://zoom.example/j/1" in first and "STATUS:TENTATIVE" in first
+    assert "Also in an email from Carla\\, subject: Meeting link (message-id <2@test>): https://zoom.example/j/1." in first
+    assert "X-AMANUENSE-PEOPLE:ana@uni.example,bob@uni.example,carla@uni.example,me@example.org" in first
+    defence = next(v for v in store.values() if "SUMMARY:Thesis defence" in v)
+    assert "Another event starts at the same time: 'Workshop planning meeting'. If it is the same meeting\\, delete one." in defence
+    before = dict(fake_caldav["store"])
+    assert events.add(cfg, [a, b, c, d]) == (0, None)                  # rerun: nothing changes
+    assert [m["event_status"] for m in (a, b, c, d)] == ["exists"] * 4 and fake_caldav["store"] == before
+
+    key = next(k for k, v in fake_caldav["store"].items() if "Workshop planning meeting" in v)
+    fake_caldav["store"][key] = fake_caldav["store"][key].replace("STATUS:TENTATIVE", "STATUS:CONFIRMED")
+    e = mail(5, "Ana <ana@uni.example>", "Workshop planning: agenda", "Workshop planning", "Room 4")
+    before = dict(fake_caldav["store"])
+    assert events.add(cfg, [e]) == (0, None) and e["event_status"] == "exists"      # confirmed: left alone
+    assert fake_caldav["store"] == before
+
+    cal = {"title": "Planning", "notes": "", "people": {"ana@uni.example", "me@example.org"}}
+    f = mail(6, "Zoe <zoe@x.example>", "Link", "Other", to=("me@example.org", "ana@uni.example"))
+    assert events.same_meeting(cfg, f, cal) == ["shared people"]
+    cfg["mail"]["addresses"] = []                                       # then only a sender on the other counts
+    assert events.same_meeting(cfg, f, cal) == []
+    assert events.same_meeting(cfg, mail(7, "ana@uni.example", "x", "Other"), cal) == ["shared people"]
+    assert events.same_meeting(cfg, mail(8, "z@x", "Re: [list] Summer school planning", "Summer school: link"),
+                               {"title": "Meeting for summer school planning", "people": set(),
+                                "notes": "Proposed by amanuense from an email from Z, subject: Summer school planning "
+                                         "(message-id <x>)."}) == ["similar title", "same subject"]
+    assert events.same_meeting(cfg, mail(9, "z@x", "Defence of 1234567", "Defence"),
+                               {"title": "Viva 1234567", "people": set(), "notes": ""}) == ["same reference"]
+    assert events.same_meeting(cfg, mail(10, "z@x", "Meeting", "Meeting with Ana"),
+                               {"title": "Meeting with Bob", "people": set(), "notes": ""}) == []
+
+    opts = triage.Options(*window.parse_window("24h"))
+    b["event_status"], c["event_status"] = "merged", "added"            # as after the first run
+    for name in ("brief", "page"):
+        out = templates.render(cfg, name, [a, b, c, d], opts, 1)
+        assert "added to 'Workshop planning meeting' at the same time" in out
+        assert "another event starts at the same time: 'Workshop planning meeting'" in out
+    assert render.stats([a, b, c, d])["events_merged"] == 1
+    with pytest.raises(SystemExit, match="mail.addresses"):
+        config.load(None, {"mail": {"addresses": "me@example.org"}}, require_file=False)
 
 
 def test_calendar_checks(fake_caldav):

@@ -292,11 +292,25 @@ The model also says whether an email fixes an event you are expected to attend: 
   ```
   It uses the server, user and password of the `[calendar]` section. A separate calendar is best: it shows next to yours, and you can hide or empty it.
 - **How events look:** tentative and private. The description starts with what the event is for, then names the sender, the subject and the Message-ID of the email. Mail marked [sensitive](#sensitive-mail) gives only "Event (sensitive email from X)", with no reason, subject or place. An email that gives a date but no time makes an all-day event.
-- **Never overwritten:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice. amanuense never replaces, edits or deletes an event: confirm it, move it or delete it yourself, and it stays that way. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
+- **One event per meeting:** each event is created once. Its id comes from the date, the start time and the sender, so the same meeting in a later email from the same person isn't added twice.
+- **The same meeting from someone else:** before adding an event, amanuense reads the events calendar for that day. An event at the same start time is taken as the same meeting if one of these also holds:
+  - **shared people:** someone other than you is on both emails (sender, To or Cc). Each event keeps these addresses in a hidden field, `X-AMANUENSE-PEOPLE`. Set your own addresses, so they don't count:
+    ```toml
+    [mail]
+    addresses = ["me@example.org", "m.e@example.org"]
+    ```
+    Without them, only a sender counts: the sender of one email must be on the other.
+  - **a similar title:** the titles share their main words ("meeting", "call", "zoom", "link" and the like don't count);
+  - **the same subject**, without Re:/Fwd:;
+  - **the same reference**, as for tasks (see `taskwarrior.references`).
+
+  Then the later email is added to the existing event: its place or link goes into the location, and the description gets a line "Also in an email from X, subject: Y (message-id …): link.". This happens only while the event is amanuense's own and still tentative. An event you confirmed, or one you made, is left as it is, and the digest says "already in the calendar as '…'". The change is sent only if the event hasn't changed since amanuense read it.
+- **Same time, different meeting:** if only the time matches, a new event is added. Its description and the digest line say "another event starts at the same time: '…'", so you can delete one if they are the same.
+- **Never deleted:** amanuense never deletes or moves an event: confirm it, move it or delete it yourself. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
 - **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
 - **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
 
-Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `exists`, `would add`, `failed`).
+Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `merged`, `exists`, `would add`, `failed`) and `m.event_other` (the title of the other event at the same time, if any).
 
 ## The morning reminder (calendar)
 

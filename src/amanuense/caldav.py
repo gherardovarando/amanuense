@@ -256,7 +256,40 @@ def _event(p):
     get = lambda k: _untext(p[k][1]).strip() if k in p else ""
     return {"start": start, "end": end, "all_day": all_day, "title": get("SUMMARY") or "(no title)",
             "place": get("LOCATION"), "status": get("STATUS").lower(), "notes": get("DESCRIPTION"),
-            "repeats": "RRULE" in p}
+            "repeats": "RRULE" in p, "uid": get("UID"),
+            "people": {a for a in get("X-AMANUENSE-PEOPLE").lower().split(",") if a}}
+
+
+def items(c, url, start, end):
+    """The events of one calendar in [start, end), unexpanded, each as parse_events gives it plus
+    href (full URL), etag and raw (the iCalendar text), so one can be updated with If-Match.
+    Only REPORT is sent: nothing on the server changes."""
+    f = lambda d: d.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    body = ('<?xml version="1.0"?><c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:prop>'
+            '<d:getetag/><c:calendar-data/></d:prop><c:filter><c:comp-filter name="VCALENDAR">'
+            f'<c:comp-filter name="VEVENT"><c:time-range start="{f(start)}" end="{f(end)}"/></c:comp-filter>'
+            '</c:comp-filter></c:filter></c:calendar-query>')
+    status, data, _ = _request(c, "REPORT", url, body, {"Depth": "1", "Content-Type": "application/xml"})
+    if status != 207:
+        raise CalendarError(f"REPORT {url}: HTTP {status}")
+    out = []
+    for r in ET.fromstring(data).iter("{DAV:}response"):
+        href, etag, raw = r.findtext("d:href", "", NS), r.findtext(".//d:getetag", "", NS), r.findtext(".//c:calendar-data", "", NS)
+        for e in parse_events(raw or "")[:1]:
+            if e["start"] < end and (e["end"] or e["start"]) >= start:
+                out.append({**e, "href": urllib.parse.urljoin(url, href), "etag": etag, "raw": raw})
+    return sorted(out, key=lambda e: e["start"])
+
+
+def update(c, url, body, etag):
+    """PUT a changed event only if it is unchanged on the server since it was read (If-Match).
+    Returns True if updated, False if it changed meanwhile."""
+    status, _, _ = _request(c, "PUT", url, body, {"Content-Type": "text/calendar; charset=utf-8", "If-Match": etag})
+    if status == 412:
+        return False
+    if status not in (200, 201, 204):
+        raise CalendarError(f"PUT {url}: HTTP {status}")
+    return True
 
 
 def fetch(c, base_url, uid):

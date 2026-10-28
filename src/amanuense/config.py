@@ -14,7 +14,8 @@ DEFAULTS = {
     "categories_file": "categories.md",
     "owner": {"description": "a university professor", "languages": "English"},
     "window": {"default": "24h", "unread": True, "max_unread": 100, "max_messages": 300},
-    "mail": {"account": "", "inbox": "INBOX", "sent": "Sent"},
+    "mail": {"account": "", "inbox": "INBOX", "sent": "Sent",
+             "addresses": []},  # your own addresses: never "shared people" between two emails
     "mcp": {"command": "imap-mcp-server", "args": [], "env": {}},
     "model": {
         "api": "ollama",  # "ollama" or "openai" (any OpenAI-compatible server)
@@ -140,6 +141,10 @@ def load(path=None, overrides=None, require_file=True):
             window.parse_duration(cfg["waiting"][key])
         except ValueError as e:
             raise SystemExit(f"config: waiting.{key}: {e}") from None
+    a = cfg["mail"]["addresses"]
+    if isinstance(a, str) or not all(isinstance(x, str) for x in a):
+        raise SystemExit('config: mail.addresses: a list of addresses, e.g. ["me@example.org"]')
+    cfg["mail"]["addresses"] = [x.strip().lower() for x in a if x.strip()]
     for pattern in cfg["taskwarrior"]["references"]:
         try:
             re.compile(pattern)

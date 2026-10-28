@@ -576,10 +576,11 @@ def summary(a, msgs, elapsed, tail, file=sys.stdout):
     st = render.stats(msgs)
     cats = ", ".join(f"{k} {v}" for k, v in st["categories"].items())
     reused = f" ({st['reused']} from earlier runs)" if st["reused"] else ""
+    merged = f", {st['events_merged']} merged" if st.get("events_merged") else ""
     print(f"{st['messages']} messages ({st['outside_window']} unread outside the window, "
           f"{st['expiring']} in expiring folders), {st['triaged']} triaged{reused}"
           f"{f' [{cats}]' if cats else ''}, {st['todos']} to-dos, {st['tasks']} tasks, {st['tagged']} tagged, "
-          f"{st['sensitive']} sensitive, {st['events']} events ({st['events_added']} added), {st['skipped']} skipped, "
+          f"{st['sensitive']} sensitive, {st['events']} events ({st['events_added']} added{merged}), {st['skipped']} skipped, "
           f"{st['errors']} errors, {elapsed / 60:.1f} min, {tail}", file=file)
 
 
