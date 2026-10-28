@@ -32,7 +32,19 @@ MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
 SUBJECT = re.compile(r"subject: (.+?)(?: \(amanuense, message-id|, msgid:|$)")
 PREFIX = re.compile(r"^(\s*(re|fwd?|rv|res|enc|aw|wg|tr)\s*:\s*|\s*\[[^\]]*\]\s*)+", re.I)
 CLOSED = ("completed", "deleted")
-MIN_SUBJECT = 12  # shorter subjects ("Re: question") are too generic to group mail by
+MIN_SUBJECT = 12
+# a to-do that only says to attend: the calendar event already reminds you of that
+ATTEND = re.compile(r"^\s*(attend|join|participate|take part|go to|be at|be present)\b", re.I)
+# "Confirm …" is a real to-do only if the email asks for it ("confirmed" or "confirmado" don't ask)
+CONFIRM = re.compile(r"^\s*confirm\b", re.I)
+CONFIRMS = re.compile(r"\bconf[ie]rm\w*", re.I)
+DONE = {"confirmed", "confirmado", "confirmada", "confirmados", "confirmadas", "confirmat", "confirmats",
+        "confirmades", "confermato", "confermata", "confermati", "confermate"}
+ASKS = re.compile(r"\b(rsvp|let (me|us) know|h[aá]z(me|nos)(lo)? saber|av[ií]s(a|ame|anos))\b", re.I)
+
+
+def asks_to_confirm(text):
+    return bool(ASKS.search(text) or any(w.lower() not in DONE for w in CONFIRMS.findall(text)))  # shorter subjects ("Re: question") are too generic to group mail by
 
 
 class TaskError(RuntimeError):
@@ -140,6 +152,13 @@ def build(cfg, m, now=None):
         notes.append(f"The email's deadline, {deadline:%d %b}, has passed: check whether this is still needed.")
     elif deadline:
         dues.append(deadline)
+    event = ai.get("event")
+    if event and not deadline:  # work for a meeting is due when the meeting starts
+        at = datetime.strptime(f"{event['date']} {event['start'] or '00:00'}", "%Y-%m-%d %H:%M").replace(tzinfo=now.tzinfo)
+        if at > now:
+            dues.append(at)
+            notes.append(f"Due at the start of the event{'' if m.get('sensitive') else ' ' + repr(event['title'])}, "
+                         f"{at:%a %d %b}{'' if not event['start'] else f' {at:%H:%M}'}: the email states no other deadline.")
     if m.get("expires"):  # the server deletes the message then: act before
         expires = datetime.fromisoformat(m["expires"]).astimezone(now.tzinfo)
         if expires > now and (not dues or expires < dues[0]):
@@ -209,7 +228,20 @@ def add_tasks(cfg, msgs, dry_run=False):
     """Create a task for each open to-do that doesn't have one yet. Sets m["task"] on those messages.
     Mail in extra folders dated before the window gets none: earlier runs already saw it."""
     todo = [m for m in msgs if "ai" in m and m["ai"]["needs_action"] and not m["handled"] and not m.get("before_window")]
-    return _add(cfg, todo, build, dry_run, group=True)
+    for m in todo:
+        if in_calendar(m):
+            m["task"] = "in calendar"
+    return _add(cfg, [m for m in todo if not in_calendar(m)], build, dry_run, group=True)
+
+
+def in_calendar(m):
+    """True when the to-do is only to attend an event that is in the events calendar, or to confirm
+    one when the email never asks for that (the model sometimes invents it): no task then.
+    Without the event in a calendar (no events.url, or it failed) the task is kept."""
+    todo = m["ai"].get("todo") or ""
+    unasked = CONFIRM.match(todo) and m.get("body") and not asks_to_confirm(f"{m.get('subject') or ''}\n{m['body']}")
+    return bool(m["ai"].get("event") and m.get("event_status") in ("added", "merged", "exists")
+                and (ATTEND.match(todo) or unasked))
 
 
 def add_followups(cfg, waits, dry_run=False):

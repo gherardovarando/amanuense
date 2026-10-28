@@ -239,7 +239,8 @@ When `taskwarrior.enabled` is `"auto"` (the default) and the `task` command is i
 
 - **Tags:** the category, plus `taskwarrior.tags` (default `email`). Categories with `keyword: none` get no category tag.
 - **Description:** the to-do.
-- **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead.
+- **Due date:** the deadline, if the email has one. A deadline already past sets no due date; a note on the task says it has passed instead. A task from an email that fixes an event, with no deadline of its own, is due when the event starts, and a note says so.
+- **Events and tasks:** the event is the reminder to attend, so a task is only for work besides attending: "Bring the budget figures to …", "Send the slides for …", "Confirm attendance at …". The model is told this. As a safety net, a to-do that only says to attend ("Attend …", "Join …", "Participate in …", "Go to …") gets no task when its event is in the events calendar. So does "Confirm …" when the email never asks for a confirmation ("please confirm", "confirmad", "RSVP", "let me know"…): the small model sometimes invents one. The digest says "in the calendar, no task" for these. Without `events.url`, or if adding the event failed, the task is kept, since nothing else would remind you.
 - **Project:** the folder's `project` (see [Extra folders](#extra-folders)), else the first `[taskwarrior.projects]` rule that matches, else `taskwarrior.project`, else none. A rule is a name and a regular expression, matched case-insensitively against the subject, sender, recipients and folder:
   ```toml
   [taskwarrior.projects]

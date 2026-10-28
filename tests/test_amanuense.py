@@ -1185,9 +1185,9 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
                 "handled": False, "ai": {"category": "info", "needs_action": True, "todo": todo, "summary": "",
                                           "deadline": None, "event": {"title": title, "date": day, "start": "09:30",
                                                                       "end": None, "place": place, "why": None}}}
-    a = mail(1, "Ana <ana@uni.example>", "Workshop planning", "Workshop planning meeting", "Attend the planning meeting",
+    a = mail(1, "Ana <ana@uni.example>", "Workshop planning", "Workshop planning meeting", "Prepare the budget for the planning meeting",
              to=("me@example.org", "bob@uni.example"))
-    b = mail(2, "Bob <bob@uni.example>", "Link for tomorrow", "Call with Ana", "Join the call", "https://zoom.example/j/1")
+    b = mail(2, "Bob <bob@uni.example>", "Link for tomorrow", "Call with Ana", "Send the agenda before the call", "https://zoom.example/j/1")
     msgs = [b, a]                                         # the link email first: tasks still end up as one
     events.add(cfg, msgs)
     assert {a["event_status"], b["event_status"]} == {"added", "merged"}
@@ -1195,13 +1195,34 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
     assert taskdb.add_tasks(cfg, msgs) == 1
     assert b["task"] == "added" and a["task"] == "noted"
     t = json.loads(taskdb._task(cfg, "export", read_only=True))
-    assert len(t) == 1 and t[0]["annotations"][1]["description"].startswith("same meeting: ") and "uid 1," in t[0]["annotations"][1]["description"]
+    same = [n["description"] for n in t[0]["annotations"] if n["description"].startswith("same meeting: ")]
+    assert len(t) == 1 and len(same) == 1 and "uid 1," in same[0]
 
-    c = mail(3, "Carla <carla@uni.example>", "Room change", "Workshop planning", "Go to room 5", "Room 5",
+    c = mail(3, "Carla <carla@uni.example>", "Room change", "Workshop planning", "Print the handouts", "Room 5",
              to=("me@example.org", "ana@uni.example"))
     events.add(cfg, [c])                                  # a later run: the task is already there
     assert c["event_status"] == "merged" and sorted(c["same_meeting"]) == ["<1@test>", "<2@test>"]
     assert taskdb.add_tasks(cfg, [c]) == 0 and c["task"] == "noted"
+    assert t[0]["due"] == taskdb._utc(datetime.strptime(f"{day} 09:30", "%Y-%m-%d %H:%M").astimezone())
+    assert "Due at the start of the event 'Call with Ana', " in t[0]["annotations"][1]["description"]
+
+    # only "attend": the calendar is the reminder; without the event in a calendar the task stays
+    d = mail(4, "Eve <eve@uni.example>", "Seminar", "Seminar by Eve", "Attend Eve's seminar")
+    d["ai"]["event"]["start"] = "15:00"
+    f = mail(5, "Fay <fay@uni.example>", "Talk", "Talk by Fay", "Join Fay's talk")
+    f["ai"]["event"]["start"] = "17:00"
+    events.add(cfg, [d])
+    f["event_status"] = "would add"                       # e.g. no events.url
+    assert taskdb.add_tasks(cfg, [d, f]) == 1 and d["task"] == "in calendar" and f["task"] == "added"
+    opts = triage.Options(*window.parse_window("24h"))
+    assert "in the calendar, no task" in templates.render(cfg, "long", [d, f], opts, 1)
+    for body, kept in (("We meet on Tuesday at 10:00. The meeting is confirmed.", False),
+                       ("La reunión está confirmada para el martes.", False),
+                       ("We meet on Tuesday. Please confirm your attendance.", True),
+                       ("Nos vemos el martes. Por favor, confirmad asistencia.", True),
+                       ("We meet on Tuesday. RSVP by Friday.", True), ("", True)):  # no text: keep it
+        g = {**d, "body": body, "ai": {**d["ai"], "todo": "Confirm attendance at Eve's seminar"}, "event_status": "exists"}
+        assert taskdb.in_calendar(g) is not kept, body
 
 
 def test_calendar_checks(fake_caldav):
