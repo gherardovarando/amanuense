@@ -240,7 +240,7 @@ def in_calendar(m):
     Without the event in a calendar (no events.url, or it failed) the task is kept."""
     todo = m["ai"].get("todo") or ""
     unasked = CONFIRM.match(todo) and m.get("body") and not asks_to_confirm(f"{m.get('subject') or ''}\n{m['body']}")
-    return bool(m["ai"].get("event") and m.get("event_status") in ("added", "merged", "exists")
+    return bool(m["ai"].get("event") and m.get("event_status") in ("added", "merged", "exists", "yours")
                 and (ATTEND.match(todo) or unasked))
 
 

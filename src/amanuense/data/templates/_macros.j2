@@ -22,7 +22,7 @@
 {%- endmacro %}
 
 {% macro event_note(s, other=none) -%}
-{% if s == "added" %} · added (tentative){% if other %}; another event starts at the same time: '{{ other }}'{% endif %}{% elif s == "merged" %} · added to '{{ other }}' at the same time{% elif s == "exists" %} · already in the calendar{% if other %} as '{{ other }}'{% endif %}{% elif s == "failed" %} · not added (error){% endif %}
+{% if s == "added" %} · added (tentative){% if other %}; another event starts at the same time: '{{ other }}'{% endif %}{% elif s == "yours" %} · you already have '{{ other }}' at that time{% elif s == "merged" %} · added to '{{ other }}' at the same time{% elif s == "exists" %} · already in the calendar{% if other %} as '{{ other }}'{% endif %}{% elif s == "failed" %} · not added (error){% endif %}
 {%- endmacro %}
 
 {% macro waiting(s) -%}

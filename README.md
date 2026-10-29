@@ -306,12 +306,18 @@ The model also says whether an email fixes an event you are expected to attend: 
   - **the same reference**, as for tasks (see `taskwarrior.references`).
 
   Then the later email is added to the existing event: its place or link goes into the location, and the description gets a line "Also in an email from X, subject: Y (message-id …): link.". This happens only while the event is amanuense's own and still tentative. An event you confirmed, or one you made, is left as it is, and the digest says "already in the calendar as '…'". The change is sent only if the event hasn't changed since amanuense read it.
+- **Your own events:** if you add meetings to your calendar yourself, list that calendar, so amanuense reads it (never writes to it) before adding an event:
+  ```toml
+  [events]
+  check = ["Personal"]   # names as `amanuense calendar list` shows them, or URLs
+  ```
+  If one of your events starts at the same time, nothing is added, and the digest says "you already have '…' at that time". No other sign is needed: either you made it from that email, or it's a clash you want to know about. A to-do that only says to attend gets no task then either. `amanuense check` says whether each name is found.
 - **Same time, different meeting:** if only the time matches, a new event is added. Its description and the digest line say "another event starts at the same time: '…'", so you can delete one if they are the same.
 - **Never deleted:** amanuense never deletes or moves an event: confirm it, move it or delete it yourself. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
 - **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
 - **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
 
-Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `merged`, `exists`, `would add`, `failed`) and `m.event_other` (the title of the other event at the same time, if any).
+Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `merged`, `yours`, `exists`, `would add`, `failed`) and `m.event_other` (the title of the other event at the same time, if any).
 
 ## The morning reminder (calendar)
 

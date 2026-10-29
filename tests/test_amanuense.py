@@ -1225,6 +1225,41 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
         assert taskdb.in_calendar(g) is not kept, body
 
 
+def test_events_your_own_calendar(fake_caldav, taskdb):
+    """An event you made yourself, at the same time, in a calendar in events.check: nothing is added."""
+    from amanuense import caldav, events
+    srv = fake_caldav["server"]
+    cfg = config.load(None, {"calendar": {"server": srv, "username": "me", "password_file": fake_caldav["password_file"]},
+                             "events": {"url": srv + "dav/calendars/me/amanuense/", "check": ["personal"]},
+                             "mail": {"account": "work"}}, require_file=False)
+    day = datetime.now() + timedelta(days=4)
+    start = day.replace(hour=12, minute=30, second=0, microsecond=0).astimezone()
+    fake_caldav["store"]["/dav/calendars/me/personal/mine.ics"] = caldav.ics(
+        "mine", start, 30, "Thesis meeting", "made by hand", alarm=False, kind="event")
+    def mail(uid, start, todo="Attend the thesis meeting"):
+        return {"uid": uid, "from": "Stu <stu@uni.example>", "to": ["me@example.org"], "subject": "Re: thesis",
+                "messageId": f"<{uid}@test>", "handled": False,
+                "ai": {"category": "teaching", "needs_action": True, "todo": todo, "summary": "", "deadline": None,
+                       "event": {"title": "Meeting with Stu", "date": f"{day:%Y-%m-%d}", "start": start,
+                                 "end": None, "place": None, "why": None}}}
+    a, b = mail(1, "12:30"), mail(2, "16:00")
+    assert events.add(cfg, [a, b]) == (1, None)
+    assert a["event_status"] == "yours" and a["event_other"] == "Thesis meeting" and b["event_status"] == "added"
+    assert len([k for k in fake_caldav["store"] if "/amanuense/" in k]) == 1             # only b's
+    assert taskdb.add_tasks(cfg, [a]) == 0 and a["task"] == "in calendar"      # only "attend": no task either
+    opts = triage.Options(*window.parse_window("24h"))
+    a["date"], a["ai"]["summary"] = f"{datetime.now().astimezone():%Y-%m-%dT%H:%M:%S%z}", "s"
+    assert "you already have 'Thesis meeting' at that time" in templates.render(cfg, "long", [a], opts, 1)
+
+    cfg["events"]["check"] = ["Nope"]
+    c = mail(3, "09:00")
+    added, problem = events.add(cfg, [c])
+    assert added == 1 and "no calendar named 'Nope'" in problem       # a wrong name: a warning, events still added
+    assert ("events.check Nope", False) == cli.calendar_checks(cfg)[-1][:2]
+    with pytest.raises(SystemExit, match="events.check"):
+        config.load(None, {"events": {"check": "Personal"}}, require_file=False)
+
+
 def test_calendar_checks(fake_caldav):
     base = {"server": fake_caldav["server"], "username": "me", "password_file": fake_caldav["password_file"]}
     cfg = config.load(None, {"calendar": {**base, "enabled": True, "url": fake_caldav["server"] + "dav/calendars/me/tasks"},

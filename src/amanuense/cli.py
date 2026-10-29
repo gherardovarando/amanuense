@@ -675,8 +675,13 @@ def calendar_checks(cfg):
         found = {u.rstrip("/"): n for n, u in caldav.discover(c)}
     except (caldav.CalendarError, OSError) as e:
         return [(n, False, str(e)) for n, _ in wanted]
-    return [(n, u.rstrip("/") in found, f'"{found[u.rstrip("/")]}"' if u.rstrip("/") in found
-             else f"{u} is not one of your calendars (`amanuense calendar list`)") for n, u in wanted]
+    out = [(n, u.rstrip("/") in found, f'"{found[u.rstrip("/")]}"' if u.rstrip("/") in found
+            else f"{u} is not one of your calendars (`amanuense calendar list`)") for n, u in wanted]
+    names = {n.lower() for n in found.values()}
+    for x in cfg["events"]["check"]:  # your calendars, read before adding an event
+        ok = x.rstrip("/") in found if x.startswith(("http://", "https://")) else x.lower() in names
+        out.append((f"events.check {x}", ok, "found" if ok else "not one of your calendars (`amanuense calendar list`)"))
+    return out
 
 
 def cmd_category(cfg, a):

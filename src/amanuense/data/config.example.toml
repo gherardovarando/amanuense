@@ -115,6 +115,7 @@ todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunde
 # never replaced or deleted. It uses the server and password of [calendar]. A separate calendar is best.
 url = ""               # e.g. a calendar from `amanuense calendar list`; "" = list them only
 minutes = 60           # length of an event whose end time the email doesn't say
+# check = ["Personal"] # your own calendars, read only: no event is added if one of yours starts then
 
 [sensitive]
 # Mail with personal or sensitive material: its tasks name only the sender, and tagging sets

@@ -110,7 +110,7 @@ def item(m, cfg):
         "deadline": ai.get("deadline"), "priority": priority(m, cfg) if ai else None,
         "summary": ai.get("summary") or "", "sensitive": bool(m.get("sensitive")),
         "event": ai.get("event"),  # {title, date, start, end, place} or None
-        "event_status": m.get("event_status"),  # "added", "merged", "exists", "would add", "failed" or None
+        "event_status": m.get("event_status"),  # "added", "merged", "yours", "exists", "would add", "failed" or None
         "event_other": m.get("event_other"),  # title of another event at the same time (the same meeting if merged/exists)
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists",
                                 # "in calendar" (only to attend an event in the calendar) or None

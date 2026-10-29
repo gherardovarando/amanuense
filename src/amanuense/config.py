@@ -50,7 +50,8 @@ DEFAULTS = {
     "calendar": {"enabled": False, "server": "", "url": "", "username": "", "password_file": "",
                  "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
-    "events": {"url": "", "minutes": 60},  # CalDAV calendar for events from mail ("" = only listed in the digest)
+    "events": {"url": "", "minutes": 60,
+               "check": []},  # your own calendars (names or URLs), read only: an event of yours at that time wins  # CalDAV calendar for events from mail ("" = only listed in the digest)
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {},
                     # references that name one item (a manuscript, a case): mail that names the same one as a
                     # pending task, in any thread, is noted on that task instead of making a new one
@@ -141,6 +142,8 @@ def load(path=None, overrides=None, require_file=True):
             window.parse_duration(cfg["waiting"][key])
         except ValueError as e:
             raise SystemExit(f"config: waiting.{key}: {e}") from None
+    if isinstance(cfg["events"]["check"], str) or not all(isinstance(x, str) for x in cfg["events"]["check"]):
+        raise SystemExit('config: events.check: a list of calendar names or URLs, e.g. ["Personal"]')
     a = cfg["mail"]["addresses"]
     if isinstance(a, str) or not all(isinstance(x, str) for x in a):
         raise SystemExit('config: mail.addresses: a list of addresses, e.g. ["me@example.org"]')

@@ -5,7 +5,8 @@ from the date, the start time and the sender, so the same meeting in a later ema
 person is recognised. A later email about the same meeting from someone else (same time, and
 a sender of one on the other, a similar title, the same subject or the same reference) adds its place or link
 to amanuense's own event while that is still tentative; one you confirmed or edited is left as
-it is. amanuense never deletes an event. If only the time matches, a new event is added and
+it is. With events.check, your own calendars are read too (never written): if one of your events
+starts at that time, nothing is added. amanuense never deletes an event. If only the time matches, a new event is added and
 both its notes and the digest say another event starts then.
 """
 import hashlib
@@ -171,14 +172,34 @@ def link(msgs, m, e):
             o["same_meeting"] = sorted(set(o.get("same_meeting", [])) | {m["messageId"]})
 
 
+def your_calendars(cfg):
+    """[(name, url)] of the calendars in events.check (names as `calendar list` shows them, or URLs),
+    and a problem for each name not found."""
+    wanted = cfg["events"]["check"]
+    out, missing = [(u, u) for u in wanted if u.startswith(("http://", "https://"))], []
+    names = [n for n in wanted if not n.startswith(("http://", "https://"))]
+    if names:
+        found = {n.lower(): u for n, u in caldav.discover(cfg["calendar"])}
+        out += [(n, found[n.lower()]) for n in names if n.lower() in found]
+        missing = [n for n in names if n.lower() not in found]
+    return out, (f"events.check: no calendar named {', '.join(map(repr, missing))} (`amanuense calendar list`)"
+                 if missing else None)
+
+
 def add(cfg, msgs, dry_run=False):
     """Create the upcoming events in events.url, or add the email to the same meeting already there.
-    Sets m["event_status"] on each: "added", "merged" (into amanuense's tentative event),
+    Sets m["event_status"] on each: "added", "merged" (into amanuense's tentative event), "yours"
+    (an event of yours in an events.check calendar starts then: nothing added),
     "exists" (already there, left as it is), "would add" or "failed"; m["event_other"] is the
     title of the other event at that time, if any; m["same_meeting"] the Message-IDs of the other
     emails about that meeting. Returns (added, problem or None)."""
     url = cfg["events"]["url"]
-    added, problem = 0, None
+    added, problem, yours = 0, None, []
+    if url and not dry_run and cfg["events"]["check"]:
+        try:
+            yours, problem = your_calendars(cfg)
+        except caldav.CalendarError as err:
+            problem = f"events.check: {err}"
     for m in upcoming(msgs):
         if dry_run or not url:
             m["event_status"] = "would add"
@@ -192,6 +213,11 @@ def add(cfg, msgs, dry_run=False):
                 link(msgs, m, same)
             if same and same["uid"] == uid(m):
                 m["event_status"], m["event_id"] = "exists", uid(m)
+                continue
+            mine = next((e for _, u in yours for e in caldav.read_events(cfg["calendar"], u, day, day + timedelta(days=1))
+                         if _at_same_time(m, e)), None)
+            if mine:  # you put it in your calendar (or have something else then): add nothing
+                m["event_status"], m["event_other"] = "yours", mine["title"]
                 continue
             if same:
                 m["event_other"], m["event_id"] = same["title"], same["uid"]
