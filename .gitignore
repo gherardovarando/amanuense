@@ -7,3 +7,4 @@ dist/
 # private files never belong here (they live in ~/.config/amanuense)
 config.toml
 categories.md
+.coverage

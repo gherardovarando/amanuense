@@ -893,9 +893,9 @@ def test_tasks_same_reference(monkeypatch, taskdb):
 
 def test_task_project_rules_and_length():
     from amanuense import tasks
-    cfg = config.load(None, {"taskwarrior": {"projects": {"conf": r"conf2026@", "course": r"DUDA ENTREGA"}}},
+    cfg = config.load(None, {"taskwarrior": {"projects": {"conf": r"conf2026@", "course": r"HOMEWORK QUESTION"}}},
                       require_file=False)
-    m = {"uid": 1, "subject": "Duda entrega", "from": "a@x", "to": ["conf2026@example.org"]}
+    m = {"uid": 1, "subject": "Homework question", "from": "a@x", "to": ["conf2026@example.org"]}
     assert tasks.project(cfg, m) == "conf"                     # first matching rule
     assert tasks.project(cfg, {**m, "to": []}) == "course"
     assert tasks.project(cfg, {**m, "project": "folder"}) == "folder"
