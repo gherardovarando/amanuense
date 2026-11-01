@@ -20,9 +20,9 @@ from .triage import Options, run
 def selection_args():
     p = argparse.ArgumentParser(add_help=False)
     g = p.add_argument_group("which mail")
-    g.add_argument("-w", "--window", metavar="SPEC", help=f"time window (default 24h): {window.HELP}")
+    g.add_argument("-w", "--window", metavar="SPEC", help=f"time window (default: window.default in the config, 24h): {window.HELP}")
     g.add_argument("--unread", action=argparse.BooleanOptionalAction, default=None,
-                   help="also include unread mail outside the window (default: on)")
+                   help="also include unread mail outside the window (default: window.unread in the config, on)")
     g.add_argument("--max-unread", type=int, metavar="N", help="at most N unread messages outside the window")
     g.add_argument("--max-messages", type=int, metavar="N", help="at most N messages per run, newest first")
     g.add_argument("--account", help="account name in the IMAP MCP server")
@@ -41,7 +41,7 @@ def selection_args():
 
     g = p.add_argument_group("run")
     g.add_argument("--test", action="store_true", help="use made-up emails instead of the mailbox (the model still runs)")
-    g.add_argument("--dry-run", action="store_true", help="decide tags but don't write them to the mailbox")
+    g.add_argument("--dry-run", action="store_true", help="write no tags, tasks or events; the digest and the phone reminder are still written")
     g.add_argument("-v", "--verbose", action="store_true", help="progress on stderr (counts only, never mail content)")
     return p
 
@@ -85,7 +85,7 @@ def build_parser():
                    help="add a Taskwarrior task for each new to-do (default: taskwarrior.enabled in the config, "
                         "'auto' = when the task command is installed)")
 
-    r = sub.add_parser("render", help="write the last digest again, e.g. with --full",
+    r = sub.add_parser("render", help="write the last digest again, e.g. with another template (-t)",
                        description="Render the results of the last digest run again, without reading mail or "
                                    "calling the model. Writes to the configured output path unless -o. "
                                    "With FILE, render that JSON output (-t json) instead, to stdout unless -o; '-' reads stdin, "

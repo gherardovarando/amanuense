@@ -112,7 +112,7 @@ todo_keyword = ""      # also set this keyword on to-dos, e.g. "$label4" (Thunde
 [events]
 # Emails that fix an event you attend (a meeting, call, talk, defence on a stated date) are listed in
 # the digest. With url set, each is also added to that CalDAV calendar: tentative, private, once,
-# never replaced or deleted. It uses the server and password of [calendar]. A separate calendar is best.
+# never deleted; a later email about the same meeting adds its place or link. It uses the server and password of [calendar]. A separate calendar is best.
 url = ""               # e.g. a calendar from `amanuense calendar list`; "" = list them only
 minutes = 60           # length of an event whose end time the email doesn't say
 # check = ["Personal"] # your own calendars, read only: no event is added if one of yours starts then

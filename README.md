@@ -22,7 +22,7 @@ A private secretary for your inbox. A small language model running on your own m
 
   Taskwarrior is optional. If [Taskwarrior](https://taskwarrior.org) is installed, each new to-do also becomes a task (see [Taskwarrior](#taskwarrior)). Without it you get the same digest, with the same to-dos, in the layout you choose or in your own template (see [Templates](#templates)).
 - **Waiting for replies.** It also checks the mail you sent. Anything that asked a question or a favour and got no answer after a week is listed with what you're waiting for, optionally as a follow-up task.
-- **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. A "Deleted soon" section at the top of the digest says how many days each one has left, and their tasks are due before the deletion date.
+- **Extra folders.** Besides the inbox, it can read other folders, such as a quarantine or an oversized-mail folder that the server empties after some days. Their messages are triaged like the rest. The digest marks each with ⏳ and its deletion date (the `long` template has a "Deleted soon" section at the top), and their tasks are due before the deletion date.
 - **Sensitive mail.** Mail about health, personal matters, HR, students' circumstances, confidential reviews or credentials is marked sensitive. Its task names only the sender, and tagging sets a `sensitive` keyword in the mailbox, so other tools and agents can leave it closed.
 - **`amanuense tag`** sets an IMAP keyword with the category on each message. Thunderbird shows these keywords as tags, and other mail clients that support keywords do too. Messages that already carry a category keyword, for example one you set by hand, keep it. If they have no `screened` keyword yet, the model still checks them for [sensitive material](#sensitive-mail). Mail that already has `screened` was checked by an earlier run and is skipped, unless `--retag`. `digest --tag` does both in one run.
 - **`amanuense render`** lays out the last digest again without reading mail or calling the model, e.g. `amanuense render -t long`. It can also read a JSON output back, from a file or a pipe (see [Templates](#templates)). The results of the last run are kept for this in `~/.local/state/amanuense/last-digest.json`, mode 600.
@@ -49,7 +49,7 @@ A private secretary for your inbox. A small language model running on your own m
 ## Requirements
 
 - Python 3.11 or later (installs `mcp` and `jinja2`)
-- A model server. With Ollama, `qwen3:4b-instruct` (about 2.5 GB) works on a 4-core CPU without a GPU, at roughly 30 seconds per email.
+- A model server. With Ollama, `qwen3:4b-instruct` (about 2.5 GB) works on a 4-core CPU without a GPU, at about 1 to 2 minutes per email.
 - [imap-mcp-server](https://github.com/nikolausm/imap-mcp-server) with your IMAP account configured in it
 - Optional: [Taskwarrior](https://taskwarrior.org) 2.6 or 3, for tasks; a CalDAV server, for events and the phone reminder. Without them you still get the digest.
 
@@ -64,8 +64,9 @@ ln -s "$PWD/.venv/bin/amanuense" ~/.local/bin/amanuense   # optional: put it on 
 ollama pull qwen3:4b-instruct
 
 amanuense init      # writes ~/.config/amanuense/config.toml and categories.md
-amanuense check
 ```
+
+Without the link, call it as `.venv/bin/amanuense`.
 
 `pipx install .` also works and gives you the command on your PATH directly.
 
@@ -74,6 +75,8 @@ In `~/.config/amanuense/config.toml`, set at least:
 - `mail.sent`: your Sent folder, used to spot replies
 - `mcp.command` and `mcp.args`: how to start imap-mcp-server
 - `owner.description`: a few words about whose mail it is
+
+Then `amanuense check` tests each part (mailbox, model, Taskwarrior, calendar) and says what to fix.
 
 ## Use
 
@@ -195,7 +198,7 @@ project = "conf2026"    # optional: Taskwarrior project for tasks from this fold
 - **Which messages:** a folder with `all = true` is read in full on every run, because a holding area is small and everything in it matters until it's gone. With `all = false`, only its messages in the time window are read.
 - **Read by the model once:** a message dated before the window was read on an earlier day. The digest keeps the model's answer from the last run, so the message keeps its to-do without another model call. If there is no earlier answer but the message has the `screened` keyword, it is listed without being read again. Only a message never read before goes to the model. This saves about a minute per held message per run.
 - **Deletion date:** the message's date plus `expires_days`. It's approximate, because servers count from arrival.
-- **In the digest:** expiring messages are listed under "Deleted soon", soonest first.
+- **In the digest:** expiring messages are marked ⏳ with their deletion date; the `long` template lists them under "Deleted soon", soonest first.
 - **Tasks:** only messages dated inside the window get tasks. Older ones were there on earlier runs, or before you started using amanuense, so they're listed in the digest but get no task: a backlog doesn't turn into stale tasks. The due date is the earlier of the email's deadline and the deletion date; when it's the deletion date, a note on the task says so. With `project`, their tasks get that project.
 - **Same email in two folders** (sent to two of your addresses): it's triaged once, from the inbox or the first folder listed.
 - **Errors:** if a folder can't be read, for example because it doesn't exist, the run goes on and the digest says so. `amanuense check` lists each folder with its message count.
@@ -217,7 +220,7 @@ Some mail should be read only by you: health, sick leave, personal or family mat
 
   Both keywords are only ever added, never removed, even with `--retag`. Set either to `""` to turn it off.
 - **Tasks:** the description is only "Sensitive email from <sender>: needs action". The task gets the `sensitive` tag (`sensitive.task_tag`), and its annotation has `subject: (sensitive)` instead of the subject. A task list shown to someone else, or read by an agent, says nothing about the content.
-- **Digest:** your digest still shows the full to-do and summary, marked 🔒.
+- **Digest:** your digest still shows the full to-do and summary; to-dos are marked 🔒.
 
 A small model will miss some sensitive mail, so a reader should still check the sender and subject before opening anything. Mail skipped by the skip rules, and mail the model failed on, gets neither keyword.
 
@@ -315,7 +318,7 @@ The model also says whether an email fixes an event you are expected to attend: 
 - **Same time, different meeting:** if only the time matches, a new event is added. Its description and the digest line say "another event starts at the same time: '…'", so you can delete one if they are the same.
 - **Never deleted:** amanuense never deletes or moves an event: confirm it, move it or delete it yourself. A meeting moved to another time in a later email gets a new event, and the old one stays until you delete it.
 - **Reading them back:** `amanuense calendar events` lists the events of the next 7 days (`--days N`) in all your calendars except the digest's own, or in one (`--calendar NAME`): day, time, title, place, calendar and status, and under each the first line of its notes. It only reads. An assistant that may not read your mail can use it to see your agenda, including the events amanuense proposed.
-- **Trial runs:** `--test` and `--dry-run` write nothing. Without `events.url`, the digest lists "Events I would add".
+- **Trial runs:** `--test` and `--dry-run` add no events. Without `events.url`, the digest lists "Events I would add".
 
 Templates see `events` (the emails with an upcoming event) and `m.event` on each email (`title`, `date`, `start`, `end`, `place`, `why`, or none), plus `m.event_status` (`added`, `merged`, `yours`, `exists`, `would add`, `failed`) and `m.event_other` (the title of the other event at the same time, if any).
 
@@ -373,7 +376,7 @@ amanuense render week.json -t long          # a JSON output kept from an earlier
 
 With a FILE, `render` prints unless you give `-o`, so it never overwrites the usual digest. It needs no config: categories it doesn't know are added at the end. To keep every run's JSON, add an `[[outputs]]` entry with `template = "json"` and `{date}` in its path.
 
-A template in `~/.config/amanuense/templates/` overrides a shipped one with the same name. The file extension before `.j2` (`.md`, `.html`, `.txt`) is the extension of the output file. `_macros.j2` has the shared pieces (a to-do line, a waiting line); `{% import "_macros.j2" as x %}` and `{{ x.todo(m) }}`.
+A template in `~/.config/amanuense/templates/` overrides a shipped one with the same name. The file extension before `.j2` (`.md`, `.html`, `.txt`) is the extension of the output file when you give `-t` without `-o`; otherwise the path you set decides. `_macros.j2` has the shared pieces (a to-do line, a waiting line); `{% import "_macros.j2" as x %}` and `{{ x.todo(m) }}`.
 
 **What a template sees**
 
@@ -397,7 +400,7 @@ A template in `~/.config/amanuense/templates/` overrides a shipped one with the 
 | `waiting_after`, `waiting_lookback` | The waiting settings, in words |
 | `out` | The `[output]` section of the config: any key you add there is `out.<key>` |
 
-Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `sensitive`, `event`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists` or none), `expires` and `days_left`.
+Each email has `uid`, `folder`, `folder_label`, `sender`, `from`, `subject`, `date`, `attachments`, `category`, `needs_action`, `todo`, `deadline`, `priority` (`high`, `normal`, `low`), `summary`, `sensitive`, `event`, `handled`, `older_unread`, `skipped`, `error`, `task` (`added`, `would add`, `exists`, `noted`, `would note`, `in calendar` or none), `earlier` (`completed` or `deleted`: a matching task was closed), `event_status`, `event_other`, `expires` and `days_left`.
 
 Filters: `date("%a %d %b")` for dates, `plural("message")` for counts (`1 message`, `3 messages`), and Jinja's own (`length`, `join`, `selectattr`, `sort`, …).
 
