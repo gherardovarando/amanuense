@@ -211,11 +211,12 @@ def add(cfg, msgs, dry_run=False):
                     or next((e for e in there if same_meeting(cfg, m, e)), None))
             if same:
                 link(msgs, m, same)
-            if same and same["uid"] == uid(m):
+            own = same is not None and same["uid"] == uid(m)  # from this sender, at this time
+            if own and f"message-id {m.get('messageId')}" in same["notes"]:
                 m["event_status"], m["event_id"] = "exists", uid(m)
                 continue
-            mine = next((e for _, u in yours for e in caldav.read_events(cfg["calendar"], u, day, day + timedelta(days=1))
-                         if _at_same_time(m, e)), None)
+            mine = None if own else next((e for _, u in yours for e in caldav.read_events(
+                cfg["calendar"], u, day, day + timedelta(days=1)) if _at_same_time(m, e)), None)
             if mine:  # you put it in your calendar (or have something else then): add nothing
                 m["event_status"], m["event_other"] = "yours", mine["title"]
                 continue
