@@ -56,6 +56,15 @@ def _request(c, method, url, body=None, headers=None):
         return e.code, e.read(), url
     except urllib.error.URLError as e:
         raise CalendarError(f"cannot reach {url}: {e.reason}") from None
+    except OSError as e:  # a timeout or a dropped connection while reading
+        raise CalendarError(f"cannot reach {url}: {type(e).__name__}: {e}") from None
+
+
+def _xml(data, url):
+    try:
+        return ET.fromstring(data)
+    except ET.ParseError as e:
+        raise CalendarError(f"{url.split('?')[0]} sent a reply that is not valid XML ({e})") from None
 
 
 def _propfind(c, url, props, depth="0"):
@@ -72,7 +81,7 @@ def _propfind(c, url, props, depth="0"):
                             "set calendar.server to the server's DAV address, e.g. https://host/SOGo/dav/")
     if status != 207:
         raise CalendarError(f"PROPFIND {url}: HTTP {status}")
-    return ET.fromstring(data), final
+    return _xml(data, url), final
 
 
 def _href(root, path, base):
@@ -197,7 +206,7 @@ def read_events(c, url, start, end):
     if status != 207:
         raise CalendarError(f"REPORT {url}: HTTP {status}")
     out = []
-    for el in ET.fromstring(data).iter("{urn:ietf:params:xml:ns:caldav}calendar-data"):
+    for el in _xml(data, url).iter("{urn:ietf:params:xml:ns:caldav}calendar-data"):
         for e in parse_events(el.text or ""):
             stop = e["end"] or e["start"]
             if e["repeats"] or (e["start"] < end and (stop > start or e["start"] >= start)):
@@ -273,7 +282,7 @@ def items(c, url, start, end):
     if status != 207:
         raise CalendarError(f"REPORT {url}: HTTP {status}")
     out = []
-    for r in ET.fromstring(data).iter("{DAV:}response"):
+    for r in _xml(data, url).iter("{DAV:}response"):
         href, etag, raw = r.findtext("d:href", "", NS), r.findtext(".//d:getetag", "", NS), r.findtext(".//c:calendar-data", "", NS)
         for e in parse_events(raw or "")[:1]:
             if e["start"] < end and (e["end"] or e["start"]) >= start:

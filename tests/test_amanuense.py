@@ -1256,6 +1256,26 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
         assert taskdb.in_calendar(g) is not kept, body
 
 
+def test_events_server_trouble(monkeypatch, fake_caldav):
+    """A timeout or a reply that is not XML: the email's event is "failed" and the run goes on."""
+    import urllib.request
+    from amanuense import caldav, events
+    cfg = config.load(None, {"calendar": {"server": fake_caldav["server"], "username": "me",
+                                          "password_file": fake_caldav["password_file"]},
+                             "events": {"url": fake_caldav["server"] + "dav/calendars/me/amanuense/"}}, require_file=False)
+    day = f"{datetime.now() + timedelta(days=3):%Y-%m-%d}"
+    m = {"uid": 1, "from": "a@x", "subject": "s", "messageId": "<1@test>", "handled": False,
+         "ai": {"event": {"title": "Call", "date": day, "start": "09:00", "end": None, "place": None, "why": None}}}
+    def timeout(*a, **k):
+        raise TimeoutError("timed out")
+    monkeypatch.setattr(urllib.request, "urlopen", timeout)
+    added, problem = events.add(cfg, [m])
+    assert added == 0 and m["event_status"] == "failed" and "TimeoutError" in problem
+    monkeypatch.setattr(caldav, "_request", lambda *a, **k: (207, b"<not xml", a[2]))
+    added, problem = events.add(cfg, [m])
+    assert added == 0 and m["event_status"] == "failed" and "not valid XML" in problem
+
+
 def test_events_your_own_calendar(fake_caldav, taskdb):
     """An event you made yourself, at the same time, in a calendar in events.check: nothing is added."""
     from amanuense import caldav, events
