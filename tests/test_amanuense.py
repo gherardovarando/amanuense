@@ -1004,6 +1004,20 @@ def test_sensitive(monkeypatch, taskdb):
         config.load(None, {"sensitive": {"from": "("}}, require_file=False)
 
 
+def test_model_down_is_a_problem(monkeypatch):
+    """When the model fails, the digest says so at the top, not only in the last line."""
+    cfg = config.load(None, require_file=False)
+    def down(c, s, m):
+        raise ConnectionRefusedError("refused")
+    monkeypatch.setattr(model, "classify", down)
+    start, end = window.parse_window("24h")
+    opts = triage.Options(start=start, end=end)
+    msgs = asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
+    assert opts.problems and "were not read by the model (ConnectionRefusedError)" in opts.problems[0]
+    for name in ("brief", "tiny", "page"):
+        assert "not read by the model" in templates.render(cfg, name, msgs, opts, 1)
+
+
 def test_held_mail_read_once(monkeypatch):
     cfg = config.load(None, FOLDERS, require_file=False)
     calls = []

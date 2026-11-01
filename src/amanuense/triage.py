@@ -228,4 +228,9 @@ async def run(cfg, box, opts, log=lambda s: None):
             if not opts.dry_run:
                 for action, kw in m["tag_actions"]:
                     await (box.add_keyword if action == "add" else box.remove_keyword)(m["folder"], m["uid"], kw)
+    failed = [m["error"] for m in msgs if m.get("error")]
+    if failed:  # shown at the top: a model that is down must not look like a quiet day
+        kinds = ", ".join(sorted(set(failed)))
+        opts.problems.append(f"{len(failed)} of {len(failed) + sum(1 for m in msgs if 'ai' in m)} emails were not "
+                             f"read by the model ({kinds}); is it running at {cfg['model']['url']}?")
     return msgs
