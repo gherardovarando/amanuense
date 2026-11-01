@@ -19,15 +19,16 @@ from .triage import addr, short_from
 OURS = "amanuense-event-"
 
 
-def upcoming(msgs, today=None):
-    """Triaged messages with an event today or later, soonest first, each event once."""
+def upcoming(msgs, today=None, once=True):
+    """Triaged messages with an event today or later, soonest first; with once, each event once
+    (same date, start and title), for listing."""
     today = today or f"{datetime.now():%Y-%m-%d}"
     with_event = [m for m in msgs if (m.get("ai") or {}).get("event") and m["ai"]["event"]["date"] >= today]
     out, seen = [], set()
     for m in sorted(with_event, key=lambda m: (m["ai"]["event"]["date"], m["ai"]["event"]["start"] or "")):
         e = m["ai"]["event"]
         key = (e["date"], e["start"], e["title"].lower())
-        if key not in seen:
+        if not once or key not in seen:
             seen.add(key)
             out.append(m)
     return out
@@ -200,7 +201,7 @@ def add(cfg, msgs, dry_run=False):
             yours, problem = your_calendars(cfg)
         except caldav.CalendarError as err:
             problem = f"events.check: {err}"
-    for m in upcoming(msgs):
+    for m in upcoming(msgs, once=False):  # every email: a later one may add its link
         if dry_run or not url:
             m["event_status"] = "would add"
             continue

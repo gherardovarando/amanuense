@@ -1141,6 +1141,11 @@ def test_events_same_meeting(fake_caldav):
     assert events.add(cfg, [f]) == (0, None) and f["event_status"] == "merged"      # same sender, later: its link too
     assert "https://zoom.example/j/2" in "".join(fake_caldav["store"].values()).replace("\r\n ", "")
 
+    g = mail(13, "Gil <gil@uni.example>", "Seminar", "Seminar", start="15:00")
+    h = mail(14, "Hal <hal@uni.example>", "Fwd: Seminar", "Seminar", "Room 9", start="15:00")
+    assert events.add(cfg, [g, h]) == (1, None)                       # one run, same title and time: one event
+    assert (g["event_status"], h["event_status"]) == ("added", "merged")
+
     key = next(k for k, v in fake_caldav["store"].items() if "Workshop planning meeting" in v)
     fake_caldav["store"][key] = fake_caldav["store"][key].replace("STATUS:TENTATIVE", "STATUS:CONFIRMED")
     e = mail(5, "Ana <ana@uni.example>", "Workshop planning: agenda", "Workshop planning", "Room 4")
