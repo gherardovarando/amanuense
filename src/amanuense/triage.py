@@ -7,6 +7,24 @@ from datetime import datetime, timedelta
 from . import config, model
 
 
+# "Confirm …" is asked for only if the text asks it ("confirmed" or "confirmado" don't ask)
+CONFIRMS = re.compile(r"\bconf[ie]rm\w*", re.I)
+DONE = {"confirmed", "confirmado", "confirmada", "confirmados", "confirmadas", "confirmat", "confirmats",
+        "confirmades", "confermato", "confermata", "confermati", "confermate"}
+ASKS = re.compile(r"\b(rsvp|let (me|us) know|h[aá]z(me|nos)(lo)? saber|av[ií]s(a|ame|anos))\b", re.I)
+
+
+def asks_to_confirm(text):
+    return bool(ASKS.search(text) or any(w.lower() not in DONE for w in CONFIRMS.findall(text)))
+
+
+def confirm_flag(m):
+    """Whether the email asks the owner to confirm something; None without its text. Triage keeps
+    only this yes/no (the body is dropped), so tasks can tell an invented "Confirm …" to-do."""
+    body = m.get("body") or ""
+    return asks_to_confirm(f"{m.get('subject') or ''}\n{body}") if body.strip() else None
+
+
 @dataclass
 class Options:
     start: datetime
@@ -192,6 +210,7 @@ async def run(cfg, box, opts, log=lambda s: None):
             try:
                 m.update(await box.get(m["folder"], m["uid"], cfg["model"]["body_chars"]))
                 m["ai"] = await asyncio.to_thread(model.classify, cfg, system, m)
+                m["asks_to_confirm"] = confirm_flag(m)
                 m["sensitive"] = m["sensitive"] or m["ai"]["sensitive"]
             except Exception as e:  # keep going; the message is listed as not triaged
                 m["error"] = type(e).__name__

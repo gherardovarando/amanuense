@@ -32,19 +32,11 @@ MSGID = re.compile(r"(?:message-id|msgid)[:\s]\s*(<[^>]+>)", re.I)
 SUBJECT = re.compile(r"subject: (.+?)(?: \(amanuense, message-id|, msgid:|$)")
 PREFIX = re.compile(r"^(\s*(re|fwd?|rv|res|enc|aw|wg|tr)\s*:\s*|\s*\[[^\]]*\]\s*)+", re.I)
 CLOSED = ("completed", "deleted")
-MIN_SUBJECT = 12
+MIN_SUBJECT = 12  # shorter subjects ("Re: question") are too generic to group mail by
 # a to-do that only says to attend: the calendar event already reminds you of that
 ATTEND = re.compile(r"^\s*(attend|join|participate|take part|go to|be at|be present)\b", re.I)
-# "Confirm …" is a real to-do only if the email asks for it ("confirmed" or "confirmado" don't ask)
+# "Confirm …" is a real to-do only if the email asks for it (triage sets m["asks_to_confirm"])
 CONFIRM = re.compile(r"^\s*confirm\b", re.I)
-CONFIRMS = re.compile(r"\bconf[ie]rm\w*", re.I)
-DONE = {"confirmed", "confirmado", "confirmada", "confirmados", "confirmadas", "confirmat", "confirmats",
-        "confirmades", "confermato", "confermata", "confermati", "confermate"}
-ASKS = re.compile(r"\b(rsvp|let (me|us) know|h[aá]z(me|nos)(lo)? saber|av[ií]s(a|ame|anos))\b", re.I)
-
-
-def asks_to_confirm(text):
-    return bool(ASKS.search(text) or any(w.lower() not in DONE for w in CONFIRMS.findall(text)))  # shorter subjects ("Re: question") are too generic to group mail by
 
 
 class TaskError(RuntimeError):
@@ -239,7 +231,7 @@ def in_calendar(m):
     one when the email never asks for that (the model sometimes invents it): no task then.
     Without the event in a calendar (no events.url, or it failed) the task is kept."""
     todo = m["ai"].get("todo") or ""
-    unasked = CONFIRM.match(todo) and m.get("body") and not asks_to_confirm(f"{m.get('subject') or ''}\n{m['body']}")
+    unasked = CONFIRM.match(todo) and m.get("asks_to_confirm") is False
     return bool(m["ai"].get("event") and m.get("event_status") in ("added", "merged", "exists", "yours")
                 and (ATTEND.match(todo) or unasked))
 

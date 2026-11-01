@@ -194,6 +194,8 @@ def test_digest_selection_and_handled(monkeypatch):
     assert by_uid[6]["outside_window"]           # old unread mail included
     assert by_uid[5]["skip"]                     # noreply sender
     assert by_uid[2]["handled"]                  # replied to in Sent
+    read = [m for m in msgs if "ai" in m]           # the body is gone, the "asks to confirm" yes/no stays
+    assert read and all("body" not in m and m["asks_to_confirm"] in (True, False) for m in read)
     md = templates.render(cfg, "long", msgs, triage.Options(*window.parse_window("24h")), 1)
     assert "## Proposed to-dos" in md and "unread, older" in md
 
@@ -1221,7 +1223,8 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
                        ("We meet on Tuesday. Please confirm your attendance.", True),
                        ("Nos vemos el martes. Por favor, confirmad asistencia.", True),
                        ("We meet on Tuesday. RSVP by Friday.", True), ("", True)):  # no text: keep it
-        g = {**d, "body": body, "ai": {**d["ai"], "todo": "Confirm attendance at Eve's seminar"}, "event_status": "exists"}
+        g = {**d, "ai": {**d["ai"], "todo": "Confirm attendance at Eve's seminar"}, "event_status": "exists",
+             "asks_to_confirm": triage.confirm_flag({"subject": "Seminar", "body": body})}  # as triage leaves it
         assert taskdb.in_calendar(g) is not kept, body
 
 
