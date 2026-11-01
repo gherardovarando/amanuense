@@ -912,6 +912,17 @@ def test_tasks_same_reference(monkeypatch, taskdb):
     assert taskdb.references(cfg, "Ref. ABC-2026-0123.R1 and 1234567") == {"ABC-2026-0123.R1", "1234567"}
 
 
+def test_config_types():
+    """Quoted booleans, an unknown model.api and words for numbers stop at load, not at 05:30."""
+    for bad in ({"tag": {"enabled": "false"}}, {"window": {"unread": "no"}}, {"taskwarrior": {"enabled": "yes"}},
+                {"model": {"api": "Ollama"}}, {"folders": [{"name": "Held", "expires_days": "14d"}]},
+                {"folders": [{"name": "Held", "all": "false"}]}):
+        with pytest.raises(SystemExit):
+            config.load(None, bad, require_file=False)
+    config.load(None, {"taskwarrior": {"enabled": "auto"}, "folders": [{"name": "Held", "expires_days": 14}]},
+                require_file=False)
+
+
 def test_task_project_rules_and_length():
     from amanuense import tasks
     cfg = config.load(None, {"taskwarrior": {"projects": {"conf": r"conf2026@", "course": r"HOMEWORK QUESTION"}}},

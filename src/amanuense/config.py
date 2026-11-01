@@ -51,7 +51,7 @@ DEFAULTS = {
                  "password_command": "", "kind": "task", "time": "07:30", "minutes": 15, "alarm": True,
                  "title_template": "oneline", "template": "tiny"},
     "events": {"url": "", "minutes": 60,
-               "check": []},  # your own calendars (names or URLs), read only: an event of yours at that time wins  # CalDAV calendar for events from mail ("" = only listed in the digest)
+               "check": []},  # your own calendars (names or URLs), read only: an event of yours at that time wins
     "taskwarrior": {"enabled": "auto", "command": "task", "tags": ["email"], "project": "", "projects": {}, "rc": {},
                     # references that name one item (a manuscript, a case): mail that names the same one as a
                     # pending task, in any thread, is noted on that task instead of making a new one
@@ -170,6 +170,20 @@ def load(path=None, overrides=None, require_file=True):
     for o in cfg["outputs"]:
         if not isinstance(o, dict) or not o.get("template") or not o.get("path"):
             raise SystemExit("config: every [[outputs]] entry needs a template and a path")
+    for section, d in DEFAULTS.items():  # "false" in quotes would count as true
+        for key, default in (d.items() if isinstance(d, dict) else ()):
+            if isinstance(default, bool) and not isinstance(cfg[section][key], bool):
+                raise SystemExit(f"config: {section}.{key} must be true or false (no quotes), not {cfg[section][key]!r}")
+    if cfg["taskwarrior"]["enabled"] not in (True, False, "auto"):
+        raise SystemExit(f'config: taskwarrior.enabled must be true, false or "auto", not {cfg["taskwarrior"]["enabled"]!r}')
+    if cfg["model"]["api"] not in ("ollama", "openai"):
+        raise SystemExit(f'config: model.api must be "ollama" or "openai", not {cfg["model"]["api"]!r}')
+    for f in cfg["folders"]:
+        if not isinstance(f.get("all", True), bool):
+            raise SystemExit(f"config: [[folders]] {f['name']}: all must be true or false (no quotes)")
+        for key in ("expires_days", "max_messages"):
+            if key in f and (isinstance(f[key], bool) or not isinstance(f[key], int)):
+                raise SystemExit(f"config: [[folders]] {f['name']}: {key} must be a whole number, not {f[key]!r}")
     for section, key in (("skip", "subject"), ("skip", "from"), ("sensitive", "subject"), ("sensitive", "from")):
         try:
             re.compile(cfg[section][key])
