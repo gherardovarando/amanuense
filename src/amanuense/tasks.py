@@ -139,14 +139,14 @@ def build(cfg, m, now=None):
     ai = m["ai"]
     now = now or datetime.now().astimezone()
     dues, notes = [], []
-    deadline = datetime.strptime(ai["deadline"], "%Y-%m-%d").replace(tzinfo=now.tzinfo) if ai.get("deadline") else None
+    deadline = datetime.strptime(ai["deadline"], "%Y-%m-%d").astimezone() if ai.get("deadline") else None
     if deadline and deadline.date() < now.date():  # old mail: a due date in the past only adds noise
         notes.append(f"The email's deadline, {deadline:%d %b}, has passed: check whether this is still needed.")
     elif deadline:
         dues.append(deadline)
     event = ai.get("event")
     if event and not deadline:  # work for a meeting is due when the meeting starts
-        at = datetime.strptime(f"{event['date']} {event['start'] or '00:00'}", "%Y-%m-%d %H:%M").replace(tzinfo=now.tzinfo)
+        at = datetime.strptime(f"{event['date']} {event['start'] or '00:00'}", "%Y-%m-%d %H:%M").astimezone()
         if at > now:
             dues.append(at)
             notes.append(f"Due at the start of the event{'' if m.get('sensitive') else ' ' + repr(event['title'])}, "

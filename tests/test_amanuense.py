@@ -837,6 +837,25 @@ def test_task_past_deadline():
     assert "the email's own deadline is" in t["annotations"][1]["description"]
 
 
+def test_task_due_across_clock_change(monkeypatch):
+    """A due date after the change from summer time keeps its local time (Madrid: +02:00, then +01:00)."""
+    import time
+    from amanuense import tasks
+    monkeypatch.setenv("TZ", "Europe/Madrid")
+    time.tzset()
+    try:
+        cfg = config.load(None, require_file=False)
+        now = datetime(2026, 10, 20, 9, 0).astimezone()                      # summer time
+        m = {"uid": 1, "subject": "s", "messageId": "<1@test>",
+             "ai": {"todo": "t", "summary": "", "category": "admin", "deadline": "2026-11-03"}}
+        assert tasks.build(cfg, m, now=now)["due"] == "20261102T230000Z"     # midnight, winter time
+        m["ai"].update(deadline=None, event={"title": "Call", "date": "2026-11-03", "start": "10:00"})
+        assert tasks.build(cfg, m, now=now)["due"] == "20261103T090000Z"     # 10:00, winter time
+    finally:
+        monkeypatch.undo()                                                  # back to the real zone
+        time.tzset()
+
+
 def test_tasks_same_topic(monkeypatch, taskdb):
     cfg = config.load(None, {"mail": {"account": "work"}, "taskwarrior": {"projects": {"grantx": r"joint grant"}}},
                       require_file=False)
