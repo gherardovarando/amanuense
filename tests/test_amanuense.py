@@ -1029,6 +1029,10 @@ def test_held_mail_read_once(monkeypatch):
     ctx = templates.context(cfg, list(second.values()), opts, 1)
     assert any(i["uid"] == 7 for i in ctx["todos"]) and ctx["expiring"][0]["uid"] == 7
     assert render.stats(list(second.values()))["reused"] == 1
+    renamed = {k: {**v, "category": "gone"} for k, v in previous.items()}  # categories.md changed since
+    opts, fourth = go(FakeMailbox(cfg), previous=renamed)
+    assert fourth[7]["ai"]["category"] == cfg["fallback"]
+    assert any(i["uid"] == 7 for i in templates.context(cfg, list(fourth.values()), opts, 1)["todos"])
 
     calls.clear()
     box = FakeMailbox(cfg)

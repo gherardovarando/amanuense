@@ -200,6 +200,8 @@ async def run(cfg, box, opts, log=lambda s: None):
         if prev and not opts.retag:
             # Held mail from before the window was read on an earlier day: reuse that verdict
             m["ai"] = dict(prev)
+            if m["ai"].get("category") not in cfg["categories"]:  # categories.md changed since
+                m["ai"]["category"] = cfg["fallback"]
             m["ai_reused"] = True
             m["sensitive"] = m["sensitive"] or bool(prev.get("sensitive"))
         elif m.get("before_window") and not opts.retag and screened and screened in (m.get("customKeywords") or []):
