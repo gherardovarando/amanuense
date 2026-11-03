@@ -231,6 +231,9 @@ async def run(cfg, box, opts, log=lambda s: None):
     failed = [m["error"] for m in msgs if m.get("error")]
     if failed:  # shown at the top: a model that is down must not look like a quiet day
         kinds = ", ".join(sorted(set(failed)))
-        opts.problems.append(f"{len(failed)} of {len(failed) + sum(1 for m in msgs if 'ai' in m)} emails were not "
-                             f"read by the model ({kinds}); is it running at {cfg['model']['url']}?")
+        read = sum(1 for m in msgs if "ai" in m)
+        why = (f"is it running at {cfg['model']['url']}?" if not read
+               else f"they took longer than model.timeout ({cfg['model']['timeout']} s)" if kinds == "TimeoutError"
+               else "the others were read")
+        opts.problems.append(f"{len(failed)} of {len(failed) + read} emails were not read by the model ({kinds}); {why}")
     return msgs
