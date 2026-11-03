@@ -35,7 +35,7 @@
   <li>{% if m.priority == "high" %}<span class="urgent">●</span> {% endif %}{{ m.todo }}
     {% if m.deadline %}<span class="chip">due {{ m.deadline | date("%a %d %b") }}</span>{% endif %}
     {% if m.expires %}<span class="chip">⏳ deleted {{ m.expires | date("%d %b") }}</span>{% endif %}
-    <div class="who">{{ m.category }} · {{ m.sender }} · uid {{ m.uid }}{% if m.task == "added" %} · task added{% if m.earlier %} (an earlier task was {{ "done" if m.earlier == "completed" else "deleted" }}){% endif %}{% elif m.task == "exists" %} · task exists{% elif m.task == "noted" %} · noted on the thread's task{% elif m.task == "in calendar" %} · in the calendar, no task{% endif %}</div></li>
+    <div class="who">{{ m.category }} · {{ m.sender }} · uid {{ m.uid }}{% if m.task == "added" %} · task added{% if m.earlier %} (an earlier task was {{ "done" if m.earlier == "completed" else "deleted" }}){% endif %}{% elif m.task == "exists" %} · task exists{% elif m.task == "noted" %} · noted on the thread's task{% elif m.task == "in calendar" %} · in the calendar, no task{% elif m.task == "event passed" %} · the event is past, no task{% endif %}</div></li>
 {% else %}
   <li>Nothing.</li>
 {% endfor %}

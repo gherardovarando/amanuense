@@ -216,24 +216,37 @@ def _make(cfg, m, description, category, extra_tags=(), dues=(), now=None, notes
     return t
 
 
-def add_tasks(cfg, msgs, dry_run=False):
+def add_tasks(cfg, msgs, dry_run=False, today=None):
     """Create a task for each open to-do that doesn't have one yet. Sets m["task"] on those messages.
     Mail in extra folders dated before the window gets none: earlier runs already saw it."""
     todo = [m for m in msgs if "ai" in m and m["ai"]["needs_action"] and not m["handled"] and not m.get("before_window")]
+    today = today or f"{datetime.now():%Y-%m-%d}"
     for m in todo:
         if in_calendar(m):
             m["task"] = "in calendar"
-    return _add(cfg, [m for m in todo if not in_calendar(m)], build, dry_run, group=True)
+        elif event_passed(m, today):
+            m["task"] = "event passed"
+    return _add(cfg, [m for m in todo if m.get("task") not in ("in calendar", "event passed")], build, dry_run, group=True)
+
+
+def only_event(m):
+    """True when the to-do is only to attend the email's event, or to confirm it when the email
+    never asks for that (the model sometimes invents it)."""
+    todo = m["ai"].get("todo") or ""
+    unasked = CONFIRM.match(todo) and m.get("asks_to_confirm") is False
+    return bool(m["ai"].get("event") and (ATTEND.match(todo) or unasked))
 
 
 def in_calendar(m):
-    """True when the to-do is only to attend an event that is in the events calendar, or to confirm
-    one when the email never asks for that (the model sometimes invents it): no task then.
+    """True when the to-do is only about an event that is in the events calendar: no task then.
     Without the event in a calendar (no events.url, or it failed) the task is kept."""
-    todo = m["ai"].get("todo") or ""
-    unasked = CONFIRM.match(todo) and m.get("asks_to_confirm") is False
-    return bool(m["ai"].get("event") and m.get("event_status") in ("added", "merged", "exists", "yours")
-                and (ATTEND.match(todo) or unasked))
+    return only_event(m) and m.get("event_status") in ("added", "merged", "exists", "yours")
+
+
+def event_passed(m, today):
+    """True when the to-do is only about an event dated before today: too late for a task.
+    E.g. a meeting fixed for the same day, read by the next morning's digest."""
+    return only_event(m) and m["ai"]["event"]["date"] < today
 
 
 def add_followups(cfg, waits, dry_run=False):

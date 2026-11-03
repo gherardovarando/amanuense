@@ -113,7 +113,8 @@ def item(m, cfg):
         "event_status": m.get("event_status"),  # "added", "merged", "yours", "exists", "would add", "failed" or None
         "event_other": m.get("event_other"),  # title of another event at the same time (the same meeting if merged/exists)
         "task": m.get("task"),  # "added", "would add", "noted" (on the thread's task), "would note", "exists",
-                                # "in calendar" (only to attend an event in the calendar) or None
+                                # "in calendar" (only to attend an event in the calendar),
+                                # "event passed" (only to attend an event already over) or None
         "earlier": m.get("earlier"),  # "completed" or "deleted": the new task is about a task closed before
         "expires": expires, "days_left": (expires - datetime.now().astimezone()).days if expires else None,
     }

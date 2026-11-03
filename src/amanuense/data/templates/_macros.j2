@@ -2,7 +2,7 @@
    {% import "_macros.j2" as x %} and call e.g. {{ x.todo(m) }}. #}
 
 {% macro task_note(t, followup=false, earlier=none) -%}
-{% if t == "added" %} · {{ "follow-up task" if followup else "task" }} added{% if earlier %} (an earlier task was {{ "done" if earlier == "completed" else "deleted" }}){% endif %}{% elif t == "would add" %} · task (dry run){% elif t == "exists" %} · task exists{% elif t == "noted" %} · noted on the thread's task{% elif t == "would note" %} · note on the thread's task (dry run){% elif t == "in calendar" %} · in the calendar, no task{% endif %}
+{% if t == "added" %} · {{ "follow-up task" if followup else "task" }} added{% if earlier %} (an earlier task was {{ "done" if earlier == "completed" else "deleted" }}){% endif %}{% elif t == "would add" %} · task (dry run){% elif t == "exists" %} · task exists{% elif t == "noted" %} · noted on the thread's task{% elif t == "would note" %} · note on the thread's task (dry run){% elif t == "in calendar" %} · in the calendar, no task{% elif t == "event passed" %} · the event is past, no task{% endif %}
 {%- endmacro %}
 
 {% macro expiry(m) -%}

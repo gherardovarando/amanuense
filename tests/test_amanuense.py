@@ -1025,8 +1025,20 @@ def test_model_down_is_a_problem(monkeypatch):
     opts = triage.Options(start=start, end=end)
     msgs = asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
     assert opts.problems and "were not read by the model (ConnectionRefusedError)" in opts.problems[0]
+    assert "is it running" in opts.problems[0]                           # none read: the model may be down
     for name in ("brief", "tiny", "page"):
         assert "not read by the model" in templates.render(cfg, name, msgs, opts, 1)
+
+    first = []
+    def slow_once(c, s, m):  # one email takes too long, the others are read
+        if not first:
+            first.append(m["uid"])
+            raise TimeoutError("timed out")
+        return fake_classify(c, s, m)
+    monkeypatch.setattr(model, "classify", slow_once)
+    opts = triage.Options(start=start, end=end)
+    asyncio.run(entered(cfg, FakeMailbox(cfg), opts))
+    assert opts.problems[-1].startswith("1 of ") and "took longer than model.timeout (600 s)" in opts.problems[-1]
 
 
 def test_held_mail_read_once(monkeypatch):
@@ -1283,6 +1295,28 @@ def test_tasks_same_meeting(fake_caldav, taskdb):
         g = {**d, "ai": {**d["ai"], "todo": "Confirm attendance at Eve's seminar"}, "event_status": "exists",
              "asks_to_confirm": triage.confirm_flag({"subject": "Seminar", "body": body})}  # as triage leaves it
         assert taskdb.in_calendar(g) is not kept, body
+
+
+def test_event_passed_no_task(taskdb):
+    """A meeting fixed for the same day, read by the next morning's digest: no event (upcoming skips it)
+    and no task for "Attend …" or an unasked "Confirm …"; other work still gets a task."""
+    cfg = config.load(None, require_file=False)
+    yesterday = f"{datetime.now() - timedelta(days=1):%Y-%m-%d}"
+    def mail(uid, todo, asks=False):
+        return {"uid": uid, "from": f"P{uid} <p{uid}@uni.example>", "to": ["me@example.org"], "subject": f"Meeting {uid}",
+                "messageId": f"<{uid}@test>", "handled": False, "asks_to_confirm": asks,
+                "date": f"{datetime.now().astimezone():%Y-%m-%dT%H:%M:%S%z}",
+                "ai": {"category": "teaching", "needs_action": True, "todo": todo, "summary": "s", "deadline": None,
+                       "event": {"title": f"Meeting {uid}", "date": yesterday, "start": "10:00",
+                                 "end": None, "place": None, "why": None}}}
+    a, b, c, d = (mail(1, "Attend the meeting with Ana"), mail(2, "Confirm the meeting with Ana"),
+                  mail(3, "Confirm the meeting with Ana", asks=True), mail(4, "Send Ana the minutes"))
+    from amanuense import events
+    assert events.upcoming([a, b, c, d]) == []
+    assert taskdb.add_tasks(cfg, [a, b, c, d]) == 2
+    assert a["task"] == b["task"] == "event passed" and c["task"] == d["task"] == "added"
+    opts = triage.Options(*window.parse_window("24h"))
+    assert "the event is past, no task" in templates.render(cfg, "long", [a], opts, 1)
 
 
 def test_events_server_trouble(monkeypatch, fake_caldav):
